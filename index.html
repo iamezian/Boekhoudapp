@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b6e4f">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Boekhouding">
+  <meta name="format-detection" content="telephone=no">
+  <title>Boekhouding</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <a class="skip" href="#main">Naar inhoud</a>
+
+  <header class="topbar">
+    <h1 id="titel">Overzicht</h1>
+    <nav class="kwartaal" aria-label="Kwartaal kiezen">
+      <button type="button" id="vorigKwartaal" class="rond" aria-label="Vorig kwartaal">‹</button>
+      <output id="kwartaalLabel" aria-live="polite">Q1 2026</output>
+      <button type="button" id="volgendKwartaal" class="rond" aria-label="Volgend kwartaal">›</button>
+    </nav>
+  </header>
+
+  <main id="main" tabindex="-1">
+    <!-- OVERZICHT -->
+    <section id="view-overzicht" class="view" aria-labelledby="titel">
+      <div class="resultaat" id="resultaat" aria-live="polite">
+        <p class="resultaat-label" id="resultaatLabel">Btw te betalen</p>
+        <p class="resultaat-bedrag" id="resultaatBedrag">€ 0,00</p>
+        <p class="resultaat-sub" id="resultaatSub"></p>
+      </div>
+
+      <div class="acties">
+        <button type="button" class="groot inkomst" data-nieuw="inkomst"><span aria-hidden="true">＋</span> Inkomsten</button>
+        <button type="button" class="groot kost" data-nieuw="kost"><span aria-hidden="true">−</span> Kosten</button>
+      </div>
+
+      <h2>Zo is het berekend</h2>
+      <dl class="kaart rijen">
+        <div><dt>Btw die je ontving over je inkomsten</dt><dd id="btwOntvangen">€ 0,00</dd></div>
+        <div><dt>Btw die je betaalde over je kosten</dt><dd id="btwBetaald">− € 0,00</dd></div>
+        <div class="totaal"><dt id="saldoLabel">Te betalen</dt><dd id="saldo">€ 0,00</dd></div>
+      </dl>
+
+      <h2>Dit kwartaal</h2>
+      <dl class="kaart rijen">
+        <div><dt>Inkomsten <small>(excl. btw)</small></dt><dd id="inkomstenExcl">€ 0,00</dd></div>
+        <div><dt>Kosten <small>(excl. btw)</small></dt><dd id="kostenExcl">€ 0,00</dd></div>
+        <div class="totaal"><dt id="winstLabel">Winst</dt><dd id="winst">€ 0,00</dd></div>
+      </dl>
+
+      <details class="kaart aangifte">
+        <summary>Hulp bij de btw-aangifte</summary>
+        <p class="uitleg">Vul deze bedragen in bij Mijn Belastingdienst Zakelijk. Afgerond op hele euro's in jouw voordeel.</p>
+        <dl class="rijen">
+          <div><dt>1a Omzet hoog tarief (21%)</dt><dd id="r1a">€ 0 / btw € 0</dd></div>
+          <div><dt>1b Omzet laag tarief (9%)</dt><dd id="r1b">€ 0 / btw € 0</dd></div>
+          <div><dt>1e Omzet 0% of niet bij jou belast</dt><dd id="r1e">€ 0</dd></div>
+          <div><dt>5a Verschuldigde btw</dt><dd id="r5a">€ 0</dd></div>
+          <div><dt>5b Voorbelasting</dt><dd id="r5b">€ 0</dd></div>
+          <div class="totaal"><dt id="rTotaalLabel">Totaal te betalen</dt><dd id="rTotaal">€ 0</dd></div>
+        </dl>
+      </details>
+    </section>
+
+    <!-- BOEKINGEN -->
+    <section id="view-boekingen" class="view" hidden aria-labelledby="titel">
+      <div class="acties">
+        <button type="button" class="groot inkomst" data-nieuw="inkomst"><span aria-hidden="true">＋</span> Inkomsten</button>
+        <button type="button" class="groot kost" data-nieuw="kost"><span aria-hidden="true">−</span> Kosten</button>
+      </div>
+      <div class="filter" role="group" aria-label="Filter boekingen">
+        <button type="button" data-filter="alle" aria-pressed="true">Alles</button>
+        <button type="button" data-filter="inkomst" aria-pressed="false">Inkomsten</button>
+        <button type="button" data-filter="kost" aria-pressed="false">Kosten</button>
+      </div>
+      <ul id="lijst" class="lijst"></ul>
+      <p id="leeg" class="leeg" hidden>Nog niets ingevoerd in dit kwartaal.<br>Tik op <strong>Inkomsten</strong> of <strong>Kosten</strong> om te beginnen.</p>
+    </section>
+
+    <!-- MEER -->
+    <section id="view-meer" class="view" hidden aria-labelledby="titel">
+      <h2>Jaaroverzicht <span id="jaarLabel"></span></h2>
+      <dl class="kaart rijen" id="jaarRijen"></dl>
+
+      <h2>Exporteren</h2>
+      <div class="kaart knoppen">
+        <button type="button" class="regel" id="csvKwartaal">Kwartaal als Excel-bestand (CSV)</button>
+        <button type="button" class="regel" id="csvJaar">Heel jaar als Excel-bestand (CSV)</button>
+      </div>
+
+      <h2>Back-up</h2>
+      <div class="kaart knoppen">
+        <p class="uitleg">Je gegevens staan alleen op deze iPhone. Maak af en toe een back-up en bewaar die in Bestanden of iCloud Drive.</p>
+        <button type="button" class="regel" id="backup">Back-up maken</button>
+        <label class="regel" for="herstelBestand">Back-up terugzetten</label>
+        <input type="file" id="herstelBestand" accept="application/json,.json" class="verborgen">
+      </div>
+
+      <h2>Installeren op je iPhone</h2>
+      <ol class="kaart uitleg stappen">
+        <li>Open deze pagina in <strong>Safari</strong>.</li>
+        <li>Tik op de deelknop <span aria-hidden="true">(□↑)</span>.</li>
+        <li>Kies <strong>Zet op beginscherm</strong> en tik op <strong>Voeg toe</strong>.</li>
+      </ol>
+
+      <div class="kaart knoppen">
+        <button type="button" class="regel gevaar" id="allesWissen">Alle gegevens wissen</button>
+      </div>
+      <p class="voetnoot">Deze app is een hulpmiddel. Controleer je aangifte altijd zelf.</p>
+    </section>
+  </main>
+
+  <nav class="tabbar" aria-label="Hoofdmenu">
+    <button type="button" data-view="overzicht" aria-current="page"><span aria-hidden="true" class="ico">◎</span>Overzicht</button>
+    <button type="button" data-view="boekingen"><span aria-hidden="true" class="ico">☰</span>Boekingen</button>
+    <button type="button" data-view="meer"><span aria-hidden="true" class="ico">⋯</span>Meer</button>
+  </nav>
+
+  <!-- INVOERFORMULIER -->
+  <dialog id="formDialog" aria-labelledby="formTitel">
+    <form id="form" method="dialog" novalidate>
+      <header class="sheet-kop">
+        <button type="button" class="tekstknop" id="annuleer">Annuleer</button>
+        <h2 id="formTitel">Nieuwe boeking</h2>
+        <button type="submit" class="tekstknop vet" id="bewaar">Bewaar</button>
+      </header>
+
+      <fieldset class="segment">
+        <legend>Soort</legend>
+        <label><input type="radio" name="soort" value="inkomst" checked><span>Inkomsten</span></label>
+        <label><input type="radio" name="soort" value="kost"><span>Kosten</span></label>
+      </fieldset>
+
+      <div class="veld">
+        <label for="bedrag">Bedrag</label>
+        <div class="bedrag-invoer">
+          <span aria-hidden="true">€</span>
+          <input id="bedrag" name="bedrag" inputmode="decimal" autocomplete="off" placeholder="0,00" required aria-describedby="bedragFout berekening">
+        </div>
+        <p id="bedragFout" class="fout" hidden>Vul een geldig bedrag in, bijvoorbeeld 125,50</p>
+      </div>
+
+      <fieldset class="segment">
+        <legend>Het bedrag is</legend>
+        <label><input type="radio" name="incl" value="ja" checked><span>Inclusief btw</span></label>
+        <label><input type="radio" name="incl" value="nee"><span>Exclusief btw</span></label>
+      </fieldset>
+
+      <fieldset class="segment">
+        <legend>Btw-tarief</legend>
+        <label><input type="radio" name="tarief" value="21" checked><span>21%</span></label>
+        <label><input type="radio" name="tarief" value="9"><span>9%</span></label>
+        <label><input type="radio" name="tarief" value="0"><span>0% / geen</span></label>
+      </fieldset>
+
+      <p id="berekening" class="berekening" aria-live="polite"></p>
+
+      <div class="veld">
+        <label for="omschrijving">Omschrijving</label>
+        <input id="omschrijving" name="omschrijving" autocomplete="off" placeholder="Bijv. factuur klant, laptop, tanken" maxlength="120">
+      </div>
+
+      <div class="veld">
+        <label for="datum">Datum</label>
+        <input id="datum" name="datum" type="date" required>
+      </div>
+
+      <button type="button" class="regel gevaar" id="verwijder" hidden>Boeking verwijderen</button>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script src="btw.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
