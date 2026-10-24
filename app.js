@@ -2,7 +2,26 @@
   'use strict';
 
   const OPSLAG_SLEUTEL = 'boekhouding.v1';
+  const FOUTEN_SLEUTEL = 'boekhouding.fouten';
   const $ = (id) => document.getElementById(id);
+
+  // ---------- Foutmeldingen ----------
+  // Onverwachte fouten worden onthouden (laatste 20), zodat je ze via Meer kunt delen. De app werkt daarna gewoon verder.
+  function leesFouten() {
+    try { return JSON.parse(localStorage.getItem(FOUTEN_SLEUTEL)) || []; } catch (e) { return []; }
+  }
+  function logFout(bericht) {
+    const fouten = leesFouten();
+    let scherm = '';
+    try { scherm = ui.view; } catch (e) { /* tijdens het opstarten */ }
+    fouten.push({ tijd: new Date().toISOString(), bericht: String(bericht).slice(0, 500), scherm });
+    try { localStorage.setItem(FOUTEN_SLEUTEL, JSON.stringify(fouten.slice(-20))); } catch (e) { /* opslag vol */ }
+    setTimeout(() => {
+      try { toast('Er ging iets mis, maar je gegevens zijn veilig.'); renderFouten(); } catch (e) { /* app nog niet geladen */ }
+    }, 0);
+  }
+  window.addEventListener('error', (e) => logFout(`${e.message} (${(e.filename || '').split('/').pop()}:${e.lineno})`));
+  window.addEventListener('unhandledrejection', (e) => logFout('Fout: ' + (e.reason && (e.reason.message || e.reason))));
 
   const euro = new Intl.NumberFormat('nl-NL', { style: 'currency', currency: 'EUR' });
   const heleEuro = new Intl.NumberFormat('nl-NL', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0, minimumFractionDigits: 0 });
@@ -14,9 +33,36 @@
   function laad() {
     try {
       const data = JSON.parse(localStorage.getItem(OPSLAG_SLEUTEL));
-      if (data && Array.isArray(data.boekingen)) return data;
+      if (data && Array.isArray(data.boekingen)) {
+        const voor = data.boekingen.length;
+        data.boekingen = data.boekingen.map(schoonBoeking).filter(Boolean);
+        if (data.boekingen.length < voor) logFout(`${voor - data.boekingen.length} beschadigde boeking(en) overgeslagen bij het laden`);
+        return data;
+      }
     } catch (e) { /* lege of beschadigde opslag */ }
     return { boekingen: [] };
+  }
+
+  // Controleert een boeking (uit opslag of back-up) en repareert wat kan; geeft null als hij onbruikbaar is.
+  // Eén kapotte boeking mag nooit de hele app laten vastlopen.
+  function schoonBoeking(b) {
+    if (!b || typeof b !== 'object' || (b.soort !== 'inkomst' && b.soort !== 'kost')) return null;
+    const bedrag = Math.round(Number(b.bedrag));
+    if (!Number.isFinite(bedrag) || bedrag < 0) return null;
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(b.datum || ''));
+    if (!m) return null;
+    const d = new Date(+m[1], +m[2] - 1, +m[3]);
+    if (d.getFullYear() !== +m[1] || d.getMonth() !== +m[2] - 1 || d.getDate() !== +m[3]) return null;
+    const uit = Object.assign({}, b, {
+      id: b.id ? String(b.id) : nieuweId(),
+      bedrag,
+      tarief: [0, 9, 21].includes(Number(b.tarief)) ? Number(b.tarief) : 0,
+      inclBtw: b.inclBtw !== false,
+      omschrijving: typeof b.omschrijving === 'string' ? b.omschrijving : '',
+    });
+    const btw = b.btwBedrag == null || b.btwBedrag === '' ? null : Math.round(Number(b.btwBedrag));
+    uit.btwBedrag = Number.isFinite(btw) && btw >= 0 && (!uit.inclBtw || btw <= bedrag) ? btw : null;
+    return uit;
   }
   function bewaar() {
     try {
@@ -99,10 +145,14 @@
     $('vorigKwartaal').setAttribute('aria-label', perJaar ? 'Vorig jaar' : 'Vorig kwartaal');
     $('volgendKwartaal').setAttribute('aria-label', perJaar ? 'Volgend jaar' : 'Volgend kwartaal');
     // In "Meer" kies je met de pijltjes het jaar via het kwartaal
-    if (ui.view === 'overzicht') renderOverzicht();
-    if (ui.view === 'boekingen') renderLijst();
-    if (ui.view === 'belasting') renderBelasting();
-    if (ui.view === 'meer') renderJaar();
+    try {
+      if (ui.view === 'overzicht') renderOverzicht();
+      if (ui.view === 'boekingen') renderLijst();
+      if (ui.view === 'belasting') renderBelasting();
+      if (ui.view === 'meer') { renderJaar(); renderFouten(); }
+    } catch (e) {
+      logFout(`Scherm ${ui.view}: ${e.message}`);
+    }
   }
 
   function boekingenVanJaar(jaar) {
@@ -458,7 +508,7 @@
     $('formNotities').textContent = notities ? notities.join(' ') : '';
 
     updateBerekening();
-    dialog.showModal();
+    openDialoog(dialog);
     if (!boeking) $('bedrag').focus();
   }
 
@@ -621,10 +671,10 @@
     try {
       const data = JSON.parse(await bestand.text());
       if (!data || !Array.isArray(data.boekingen)) throw new Error('ongeldig');
-      const geldig = data.boekingen.filter((b) =>
-        b && typeof b.bedrag === 'number' && /^\d{4}-\d{2}-\d{2}$/.test(b.datum) && (b.soort === 'inkomst' || b.soort === 'kost'));
-      if (!confirm(`Back-up met ${geldig.length} boekingen terugzetten? Je huidige gegevens worden vervangen.`)) return;
-      state.boekingen = geldig.map((b) => Object.assign({ id: nieuweId() }, b));
+      const geldig = data.boekingen.map(schoonBoeking).filter(Boolean);
+      const kapot = data.boekingen.length - geldig.length;
+      if (!confirm(`Back-up met ${geldig.length} boekingen terugzetten?${kapot ? ` (${kapot} beschadigde worden overgeslagen.)` : ''} Je huidige gegevens worden vervangen.`)) return;
+      state.boekingen = geldig;
       bewaar();
       render();
       toast('Back-up teruggezet');
@@ -655,11 +705,15 @@
   function openScan() {
     scanItems = [];
     scanStap('kiezen');
-    scanDialog.showModal();
+    openDialoog(scanDialog);
   }
 
+  // Loopt er een inleesactie? Dan bevat dit het stopsignaal; er kan er maar één tegelijk lopen.
+  let scanSignaal = null;
+
   async function startScan(bestanden) {
-    if (!bestanden || !bestanden.length) return;
+    if (!bestanden || !bestanden.length || scanSignaal) return;
+    const signaal = scanSignaal = { gestopt: false };
     scanStap('bezig');
     const balk = $('scanVoortgang');
     try {
@@ -667,6 +721,7 @@
         $('scanStatus').textContent = totaal ? `${tekst} (${Math.min(klaar + 1, totaal)} van ${totaal})` : tekst;
         if (totaal) { balk.max = totaal; balk.value = klaar; } else balk.removeAttribute('value');
       });
+      if (signaal.gestopt) return;
       scanItems = resultaten.map((r) => Object.assign(r, { meenemen: !r.fout && r.meenemen !== false && !!(r.boeking && r.boeking.bedrag) }));
       markeerDubbel(scanItems);
       renderScan();
@@ -674,8 +729,12 @@
       $('scanSamenvatting').setAttribute('tabindex', '-1');
       $('scanSamenvatting').focus();
     } catch (e) {
+      if (signaal.gestopt) return;
+      logFout('Inlezen: ' + (e.message || e));
       toast('Inlezen mislukt: ' + (e.message || 'onbekende fout'));
       scanStap('kiezen');
+    } finally {
+      if (scanSignaal === signaal) scanSignaal = null;
     }
   }
 
@@ -843,15 +902,46 @@
     scanItems.forEach((i) => { if (!i.fout) i.meenemen = aan; });
     renderScan();
   }));
-  $('scanSluit').addEventListener('click', () => {
-    if (scanItems.some((i) => i.meenemen) && !$('scanResultaat').hidden &&
+  function sluitScan() {
+    if (scanSignaal) {
+      if (!confirm('Het inlezen is nog bezig. Stoppen?')) return;
+      scanSignaal.gestopt = true;
+      scanSignaal = null;
+    } else if (scanItems.some((i) => i.meenemen) && !$('scanResultaat').hidden &&
       !confirm('De ingelezen bonnen zijn nog niet toegevoegd. Toch sluiten?')) return;
     scanDialog.close();
     Scanner.stop();
-  });
+  }
+  $('scanSluit').addEventListener('click', sluitScan);
+  // Sluiten met een veeggebaar of Esc gaat via dezelfde vraag
+  scanDialog.addEventListener('cancel', (e) => { e.preventDefault(); sluitScan(); });
   document.querySelectorAll('[data-scan]').forEach((b) => b.addEventListener('click', openScan));
 
   // ---------- Overig ----------
+  function openDialoog(d) {
+    if (d.open) return;
+    d.dataset.geopend = String(Date.now());
+    d.showModal();
+  }
+  // Een dubbeltik op een knop mag niet meteen iets aantikken in het scherm dat net openging
+  document.querySelectorAll('dialog').forEach((d) => d.addEventListener('click', (e) => {
+    if (Date.now() - Number(d.dataset.geopend || 0) < 350) { e.preventDefault(); e.stopPropagation(); }
+  }, true));
+
+  function renderFouten() {
+    const fouten = leesFouten();
+    $('foutenBlok').hidden = !fouten.length;
+    $('foutenAantal').textContent = fouten.length === 1 ? '1 foutmelding' : `${fouten.length} foutmeldingen`;
+  }
+  $('foutenDelen').addEventListener('click', () => {
+    const tekst = [`Boekhouding foutmeldingen (${navigator.userAgent})`, '']
+      .concat(leesFouten().map((f) => `${f.tijd} [${f.scherm}] ${f.bericht}`)).join('\n');
+    deelBestand('boekhouding-foutmeldingen.txt', tekst, 'text/plain');
+  });
+  $('foutenWissen').addEventListener('click', () => {
+    try { localStorage.removeItem(FOUTEN_SLEUTEL); } catch (e) { /* niets */ }
+    renderFouten();
+  });
   let toastTimer;
   function toast(tekst) {
     const t = $('toast');
