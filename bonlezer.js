@@ -27,6 +27,11 @@
     software: 'Software & abonnementen',
     kantoor: 'Kantoor & materiaal',
     inventaris: 'Apparatuur (laptop, telefoon)',
+    auto: 'Auto & brandstof',
+    sponsoring: 'Sponsoring & reclame',
+    belastingen: 'Belastingen (bijv. motorrijtuigenbelasting)',
+    verzekering: 'Verzekeringen',
+    bank: 'Bankkosten',
     overig: 'Overig',
   };
 
@@ -35,8 +40,17 @@
     'british airways', 'air france', 'turkish airlines', 'emirates', 'boarding ?pass', 'instapkaart', 'vlucht', 'vluchtnummer',
     'flight', 'e-ticket', 'luchthaven', 'airport', 'airline', 'schiphol']);
   const VERVOER = woorden(['ns', 'nederlandse spoorwegen', 'ov-?chipkaart', 'ovpay', 'gvb', 'ret', 'htm', 'arriva', 'connexxion',
-    'qbuzz', 'trein', 'train', 'taxi', 'uber', 'bolt', 'parkeren', 'parking', 'q-park', 'parkmobile', 'yellowbrick',
-    'tankstation', 'benzine', 'euro ?95', 'diesel', 'shell', 'esso', 'bp', 'tinq', 'tango', 'totalenergies', 'texaco', 'laadpaal']);
+    'qbuzz', 'trein', 'train', 'taxi', 'uber', 'bolt', 'hotel', 'booking\\.com']);
+  // Brandstof: in Nederland altijd 21% btw
+  const BRANDSTOF = woorden(['tankstation', 'benzine', 'euro ?95', 'euro ?98', 'e10', 'diesel', 'lpg', 'adblue', 'brandstof', 'tanken',
+    'shell', 'esso', 'bp', 'tinq', 'tango', 'total ?energies', 'texaco', 'avia', 'gulf', 'q8', 'argos', 'firezone', 'lukoil',
+    'ultimate', 'v-power', 'pomp', 'liter', 'ltr', 'laadpaal', 'kwh', 'fastned', 'allego', 'ionity']);
+  const AUTO = woorden(['parkeren', 'parking', 'q-park', 'parkmobile', 'yellowbrick', 'easypark', 'garage', 'apk', 'wasstraat',
+    'autowas', 'banden', 'anwb', 'kenteken', 'onderhoud auto', 'leaseauto', 'lease']);
+  const MRB = /motorrijtuigen\s*belasting|(^|[^a-z])mrb([^a-z]|$)/i;
+  const VERZEKERING = woorden(['verzekering', 'verzekeringen', 'polis', 'premie', 'assurantie', 'insurance']);
+  const BANKKOSTEN = woorden(['bankkosten', 'kosten betalingsverkeer', 'betaalpakket', 'pakketkosten', 'kosten zakelijk', 'rente', 'transactiekosten']);
+  const SPONSOR = woorden(['sponsor[a-z]*', 'shirtsponsor[a-z]*', 'bordsponsor[a-z]*', 'reclame', 'advertentie']);
   const HORECA = woorden(['restaurant', 'café', 'cafe', 'lunchroom', 'lunch', 'diner', 'bistro', 'brasserie', 'eetcafé',
     'starbucks', 'bar', 'horeca', 'mcdonald\'?s', 'burger king', 'kfc', 'subway', 'pizzeria', 'grand ?café']);
   const TELEFOON = woorden(['kpn', 'vodafone', 'odido', 't-mobile', 'ziggo', 'simyo', 'lebara', 'tele2', 'youfone', 'delta fiber', 'telefoon', 'internet']);
@@ -45,12 +59,12 @@
   const KANTOOR = woorden(['staples', 'office centre', 'kantoorartikelen', 'printer', 'inkt', 'papier', 'bureau', 'postnl']);
   const INVENTARIS = woorden(['laptop', 'macbook', 'iphone', 'ipad', 'monitor', 'computer', 'coolblue', 'mediamarkt']);
   const BUITENLANDSE_BTW = /(^|[^a-z])(mwst|ust\.|tva|iva|moms|mva)([^a-z]|$)/i;
-  const BTW_WOORD = /(^|[^a-z])(btw|b\.t\.w|vat|tax|mwst|tva|iva)([^a-z]|$)/i;
+  const BTW_WOORD = /(^|[^a-z])(b\.?\s?t\.?\s?w\.?|btvv|8tw|b7w|biw|bt\s?vv|vat|tax|mwst|tva|iva)([^a-z]|$)/i;
   const VERLEGD = /btw\s*verlegd|verlegd|reverse[- ]charge|vat\s*reverse/i;
   const TOTAAL = /(totaal|total|te betalen|amount due|amount paid|betaald|bedrag|grand total|totale prijs|pinnen|pin\b|paid|to pay)/i;
   const SUBTOTAAL = /(sub\s*-?\s*tota|excl|zonder btw|ex\.? btw|netto|net amount|before tax)/i;
-  const DATUM_LABEL = /(factuurdatum|factuur datum|invoice date|datum|date|besteldatum|order date|boekingsdatum|booking date|transactiedatum|aankoopdatum|issued|uitgifte)/i;
-  const DATUM_NIET = /(vervaldatum|verval|due|uiterlijk|geldig tot|valid until|expir|vertrek|departure|aankomst|arrival|geboorte|periode tot)/i;
+  const DATUM_LABEL = /(factuurdatum|factuur datum|invoice date|datum|date|besteldatum|order date|boekingsdatum|booking date|transactiedatum|aankoopdatum|dagtekening|issued|uitgifte)/i;
+  const DATUM_NIET = /(vervaldatum|verval|due|uiterlijk|geldig tot|valid until|expir|vertrek|departure|aankomst|arrival|geboorte|periode|tijdvak|t\/m)/i;
 
   // ---------- Datums ----------
   function geldigeDatum(j, m, d) {
@@ -145,22 +159,67 @@
     return Math.abs(a - b) <= Math.max(2, Math.abs(b) * 0.005);
   }
 
+  // ---------- Soort kosten ----------
+  // Bepaalt de categorie en of er btw op hoort te zitten. Ook gebruikt voor regels van bankafschriften.
+  function categoriseer(tekst) {
+    const t = String(tekst || '').toLowerCase();
+    if (MRB.test(t)) return { categorie: 'belastingen', geenBtw: true,
+      notitie: 'Motorrijtuigenbelasting: aftrekbaar als kosten als de auto zakelijk is (op de balans van je bedrijf). Er zit geen btw op.' };
+    if (VLUCHT.test(t)) return { categorie: 'reizen', aftrekbaar: false, geenBtw: true,
+      notitie: 'Vliegticket: zakelijk aftrekbaar als kosten, maar de btw is niet verrekenbaar (internationale vluchten hebben 0% btw).' };
+    if (SPONSOR.test(t)) return { categorie: 'sponsoring',
+      notitie: 'Sponsoring: aftrekbaar als kosten als je er reclame of naamsbekendheid voor terugkrijgt. Btw op de factuur is aftrekbaar.' };
+    if (HORECA.test(t)) return { categorie: 'horeca', aftrekbaar: false,
+      notitie: 'Eten en drinken in de horeca: btw is niet aftrekbaar. Voor de inkomstenbelasting telt 80% van de kosten.' };
+    if (VERZEKERING.test(t)) return { categorie: 'verzekering', geenBtw: true,
+      notitie: 'Verzekeringen: geen btw (wel assurantiebelasting, die hoort bij de kosten).' };
+    if (BANKKOSTEN.test(t)) return { categorie: 'bank', geenBtw: true, notitie: 'Bankkosten: geen btw.' };
+    if (BRANDSTOF.test(t)) return { categorie: 'auto', brandstof: true,
+      notitie: 'Brandstof voor je zakelijke auto: btw is aftrekbaar. Let op: aan het eind van het jaar corrigeer je de btw voor privégebruik.' };
+    if (AUTO.test(t)) return { categorie: 'auto' };
+    if (VERVOER.test(t)) return { categorie: 'reizen' };
+    if (TELEFOON.test(t)) return { categorie: 'telefoon' };
+    if (INVENTARIS.test(t)) return { categorie: 'inventaris' };
+    if (SOFTWARE.test(t)) return { categorie: 'software' };
+    if (KANTOOR.test(t)) return { categorie: 'kantoor' };
+    return { categorie: 'algemeen' };
+  }
+
+  // Een typisch woord per categorie, om de btw-regels van een map toe te passen
+  const MAP_VOORBEELD = { auto: 'brandstof', sponsoring: 'sponsoring', horeca: 'restaurant', reizen: 'trein' };
+
+  // Map in een ZIP-bestand als hint: "Inkomsten/factuur.pdf" is omzet, "Sponsoring/..." is sponsoring
+  function hintUitPad(pad) {
+    const delen = String(pad || '').toLowerCase().split('/').slice(0, -1).join('/');
+    if (!delen) return null;
+    if (/inkomst|omzet|verkoop|opbrengst|income|sales|verstuurd|uitgaande factu/.test(delen)) return { soort: 'inkomst' };
+    if (/bank|afschrift|rekeningoverzicht/.test(delen)) return { soort: 'kost', bank: true };
+    if (/sponsor/.test(delen)) return { soort: 'kost', categorie: 'sponsoring' };
+    if (/tank|brandstof|benzine|diesel|auto/.test(delen)) return { soort: 'kost', categorie: 'auto' };
+    if (/horeca|restaurant|lunch|eten/.test(delen)) return { soort: 'kost', categorie: 'horeca' };
+    if (/reis|vlucht|ticket/.test(delen)) return { soort: 'kost', categorie: 'reizen' };
+    if (/kost|uitgave|inkoop|bonnen|bon/.test(delen)) return { soort: 'kost' };
+    return null;
+  }
+
   // ---------- Hoofdfunctie ----------
+  // opties: { vandaag: 'JJJJ-MM-DD', hint: { soort, categorie } }
   function lees(tekst, bestandsnaam, opties) {
     const vandaag = (opties && opties.vandaag) || null;
+    const hint = (opties && opties.hint) || {};
     const ruw = String(tekst || '');
     const regels = ruw.split(/\r?\n/).map((r) => r.replace(/\s+/g, ' ').trim()).filter(Boolean);
     const plat = regels.join(' \n ').toLowerCase();
     const notities = [];
     const r = {
-      soort: 'kost',
+      soort: hint.soort === 'inkomst' ? 'inkomst' : 'kost',
       datum: kiesDatum(regels, vandaag),
       bedrag: null,
       inclBtw: true,
       tarief: 0,
       btwBedrag: null,
       btwAftrekbaar: true,
-      categorie: 'algemeen',
+      categorie: null,
       omschrijving: '',
       notities,
       zeker: true,
@@ -183,13 +242,14 @@
       r.zeker = false;
     }
 
-    // Btw
+    // Btw: regels met het woord btw (ook zoals OCR het soms leest) of met 9% / 21% erin
     const btwRegels = [];
     regels.forEach((regel, i) => {
-      if (!BTW_WOORD.test(regel) && !/^\s*(hoog|laag|tarief)?\s*\d{1,2}\s?%/i.test(regel)) return;
+      const pct = percentagesIn(regel);
+      if (!BTW_WOORD.test(regel) && !pct.some((p) => p === 21 || p === 9)) return;
       let bedragen = vindBedragen(regel);
       if (!bedragen.length && regels[i + 1]) bedragen = vindBedragen(regels[i + 1]);
-      btwRegels.push({ regel, bedragen: bedragen.map((b) => b.centen).filter((c) => c > 0), pct: percentagesIn(regel) });
+      btwRegels.push({ regel, bedragen: bedragen.map((b) => b.centen).filter((c) => c > 0), pct });
     });
     const btwGenoemd = BTW_WOORD.test(plat);
     const verlegd = VERLEGD.test(plat);
@@ -233,32 +293,39 @@
       }
     }
 
-    if (verlegd) {
-      r.tarief = 0;
-      notities.push('Btw verlegd: je geeft de btw zelf aan en trekt die tegelijk af. Per saldo € 0.');
-    } else if (r.tarief === 0 && r.btwBedrag == null && r.bedrag) {
-      notities.push(btwGenoemd
-        ? 'Btw genoemd maar niet als bedrag gevonden: gerekend zonder btw. Controleer de bon.'
-        : 'Geen btw op de bon gevonden: telt wel als kosten, maar zonder btw-teruggave.');
+    // Soort kosten (map in de ZIP gaat voor)
+    let cat = { categorie: null };
+    if (r.soort === 'kost') {
+      cat = categoriseer(plat);
+      if (hint.categorie && hint.categorie !== cat.categorie) {
+        // De map bepaalt de soort kosten, met de btw-regels die daarbij horen
+        cat = Object.assign(categoriseer(MAP_VOORBEELD[hint.categorie] || ''), { categorie: hint.categorie });
+      }
+      r.categorie = cat.categorie;
+      if (cat.aftrekbaar === false) r.btwAftrekbaar = false;
     }
 
-    // Soort kosten en bijzondere regels
-    if (VLUCHT.test(plat)) {
-      r.categorie = 'reizen';
-      r.btwAftrekbaar = false;
-      if (r.btwBedrag == null) notities.splice(0, notities.length, ...notities.filter((n) => !/^Geen btw op de bon/.test(n)));
-      notities.push('Vliegticket: zakelijk aftrekbaar als kosten, maar de btw is niet verrekenbaar (internationale vluchten hebben 0% btw).');
-    } else if (HORECA.test(plat)) {
-      r.categorie = 'horeca';
-      r.btwAftrekbaar = false;
-      notities.push('Eten en drinken in de horeca: btw is niet aftrekbaar. Voor de inkomstenbelasting telt 80% van de kosten.');
-    } else if (VERVOER.test(plat)) r.categorie = 'reizen';
-    else if (TELEFOON.test(plat)) r.categorie = 'telefoon';
-    else if (INVENTARIS.test(plat)) r.categorie = 'inventaris';
-    else if (SOFTWARE.test(plat)) r.categorie = 'software';
-    else if (KANTOOR.test(plat)) r.categorie = 'kantoor';
+    if (verlegd) {
+      r.tarief = 0;
+      notities.push(r.soort === 'inkomst'
+        ? 'Btw verlegd: je rekent geen btw, de klant geeft die zelf aan.'
+        : 'Btw verlegd: je geeft de btw zelf aan en trekt die tegelijk af. Per saldo € 0.');
+    } else if (r.tarief === 0 && r.btwBedrag == null && r.bedrag) {
+      if (cat.brandstof) {
+        // Brandstof in Nederland: altijd 21% btw, ook als die niet (leesbaar) op de bon staat
+        r.tarief = 21;
+        notities.push('Tankbon: btw niet leesbaar op de bon, gerekend met 21% (brandstof in Nederland heeft altijd 21% btw).');
+      } else if (!cat.geenBtw) {
+        notities.push(r.soort === 'inkomst'
+          ? 'Geen btw op de factuur gevonden: gerekend zonder btw. Controleer de factuur.'
+          : btwGenoemd
+            ? 'Btw genoemd maar niet als bedrag gevonden: gerekend zonder btw. Controleer de bon.'
+            : 'Geen btw op de bon gevonden: telt wel als kosten, maar zonder btw-teruggave.');
+      }
+    }
+    if (cat.notitie) notities.push(cat.notitie);
 
-    if (r.btwAftrekbaar && BUITENLANDSE_BTW.test(plat) && !/(^|[^a-z])btw([^a-z]|$)/i.test(plat)) {
+    if (r.soort === 'kost' && r.btwAftrekbaar && BUITENLANDSE_BTW.test(plat) && !/(^|[^a-z])btw([^a-z]|$)/i.test(plat)) {
       r.btwAftrekbaar = false;
       notities.push('Buitenlandse btw: niet aftrekbaar in je Nederlandse aangifte. Wel kosten.');
     }
@@ -271,7 +338,7 @@
     if (!r.bedrag) { r.zeker = false; notities.unshift('Bedrag niet gevonden: vul het zelf in.'); }
     if (!r.datum) { r.zeker = false; notities.unshift('Datum niet gevonden: controleer de datum.'); }
 
-    r.omschrijving = kiesOmschrijving(regels, bestandsnaam);
+    r.omschrijving = r.soort === 'inkomst' ? omschrijvingFactuur(regels, bestandsnaam) : kiesOmschrijving(regels, bestandsnaam);
     return r;
   }
 
@@ -288,7 +355,20 @@
     return '';
   }
 
-  const api = { lees, vindDatums, vindBedragen, CATEGORIEEN };
+  // Eigen verkoopfactuur: "Factuur 2026-014 – Klantnaam"
+  function omschrijvingFactuur(regels, bestandsnaam) {
+    const plat = regels.join('\n');
+    const nr = plat.match(/(?:factuur|invoice)\s*(?:nummer|nr\.?|no\.?|number|#)\s*[:#]?\s*([A-Z0-9][A-Z0-9\-/.]{1,20})/i);
+    let klant = null;
+    for (let i = 0; i < regels.length && !klant; i++) {
+      const m = regels[i].match(/^(?:factuur aan|aan|klant|debiteur|t\.?a\.?v\.?|bill to|to)\s*:?\s*(.*)$/i);
+      if (m) klant = (m[1] && m[1].length > 2 ? m[1] : regels[i + 1] || '').trim();
+    }
+    const delen = [nr ? 'Factuur ' + nr[1] : null, klant].filter(Boolean);
+    return delen.length ? delen.join(' – ').slice(0, 60) : kiesOmschrijving(regels, bestandsnaam);
+  }
+
+  const api = { lees, vindDatums, vindBedragen, categoriseer, hintUitPad, CATEGORIEEN };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.BonLezer = api;
 })(this);

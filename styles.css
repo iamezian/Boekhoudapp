@@ -296,3 +296,27 @@ select {
 .notities { background: color-mix(in srgb, var(--betalen) 12%, var(--kaart)); border-radius: 12px; padding: .75rem 1rem; font-size: .9rem; margin: .75rem 0 0; }
 .rijen .min dd { color: var(--zacht); }
 .rijen .sub { font-weight: 600; }
+
+/* Filters en selecteren */
+.filterrij { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
+.filterrij .veld { margin: .25rem 0; }
+.filterrij label { font-size: .9rem; }
+.selectiebalk { display: flex; align-items: center; justify-content: space-between; gap: .5rem; margin: .5rem 0; }
+.selectiebalk p { margin: 0; color: var(--zacht); font-size: .9rem; }
+.selectieacties { display: flex; gap: .5rem; flex-wrap: wrap; margin: .25rem 0 .75rem; }
+.knopklein[aria-pressed="true"] { background: var(--merk); color: var(--merk-tekst); }
+.gevaarknop { border-color: var(--kost); color: var(--kost); }
+.gevaarknop:not(:disabled) { background: var(--kost); color: #fff; }
+.knopklein:disabled { opacity: .45; cursor: default; }
+.lijst .vink {
+  width: 1.6rem; height: 1.6rem; border-radius: 6px; border: 2px solid var(--zacht);
+  display: grid; place-items: center; font-weight: 700; color: #fff;
+}
+.lijst button[aria-checked="true"] { outline: 2px solid var(--merk); }
+.lijst button[aria-checked="true"] .vink { background: var(--merk); border-color: var(--merk); }
+.lijst.selecteren button { grid-template-columns: auto auto 1fr auto; }
+.mappen { padding: .25rem 1rem; margin: .5rem 0; }
+.mappen summary { min-height: 44px; display: flex; align-items: center; font-weight: 600; color: var(--tekst); cursor: pointer; }
+.mappen ul { padding-left: 1.2rem; }
+.lijst button > span { min-width: 0; }
+.rond:disabled { opacity: .35; cursor: default; }

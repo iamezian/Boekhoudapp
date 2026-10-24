@@ -82,6 +82,32 @@
         <button type="button" data-filter="inkomst" aria-pressed="false">Inkomsten</button>
         <button type="button" data-filter="kost" aria-pressed="false">Kosten</button>
       </div>
+      <div class="filterrij">
+        <div class="veld">
+          <label for="periode">Periode</label>
+          <select id="periode">
+            <option value="kwartaal">Kwartaal</option>
+            <option value="jaar">Heel jaar</option>
+            <option value="alles">Alle jaren</option>
+          </select>
+        </div>
+        <div class="veld">
+          <label for="filterCategorie">Soort</label>
+          <select id="filterCategorie">
+            <option value="">Alle soorten</option>
+            <option value="__laatste">Laatst ingelezen</option>
+            <option value="__bank">Uit bankafschrift</option>
+          </select>
+        </div>
+      </div>
+      <div class="selectiebalk">
+        <p id="lijstTelling" aria-live="polite"></p>
+        <button type="button" class="knopklein" id="selecteerModus" aria-pressed="false">Selecteren</button>
+      </div>
+      <div id="selectieActies" class="selectieacties" hidden>
+        <button type="button" class="knopklein" id="selecteerAlles">Alles selecteren</button>
+        <button type="button" class="knopklein gevaarknop" id="verwijderSelectie" disabled>Verwijder</button>
+      </div>
       <ul id="lijst" class="lijst"></ul>
       <p id="leeg" class="leeg" hidden>Nog niets ingevoerd in dit kwartaal.<br>Tik op <strong>Inkomsten</strong> of <strong>Kosten</strong> om te beginnen.</p>
     </section>
@@ -246,9 +272,20 @@
       </header>
 
       <div id="scanKiezen">
-        <p class="uitleg">Kies foto's van bonnen, PDF-facturen of een ZIP-bestand met meerdere bonnen. De app leest het bedrag, de btw en de datum. Daarna controleer je alles voordat het wordt opgeslagen.</p>
+        <p class="uitleg">Kies foto's van bonnen, PDF-facturen, bankafschriften (PDF of CSV uit je bankapp) of een ZIP-bestand. De app leest het bedrag, de btw en de datum. Daarna controleer je alles voordat het wordt opgeslagen.</p>
+        <details class="kaart uitleg mappen">
+          <summary>Tip: mappen in je ZIP-bestand</summary>
+          <p>Zet je bestanden in mappen, dan weet de app meteen wat het is:</p>
+          <ul>
+            <li><strong>Inkomsten</strong>: jouw verkoopfacturen, telt als omzet</li>
+            <li><strong>Kosten</strong> of <strong>Bonnen</strong>: bonnen en inkoopfacturen</li>
+            <li><strong>Sponsoring</strong>: sponsorfacturen, btw aftrekbaar</li>
+            <li><strong>Tanken</strong> of <strong>Auto</strong>: tankbonnen, 21% btw</li>
+            <li><strong>Bank</strong>: bankafschriften</li>
+          </ul>
+        </details>
         <label class="groot scan blok" for="scanBestanden"><span aria-hidden="true">📁</span> Kies bestanden</label>
-        <input type="file" id="scanBestanden" class="verborgen" multiple accept="image/*,application/pdf,.pdf,application/zip,.zip">
+        <input type="file" id="scanBestanden" class="verborgen" multiple accept="image/*,application/pdf,.pdf,application/zip,.zip,text/csv,.csv,.txt">
         <label class="groot scan blok licht" for="scanCamera"><span aria-hidden="true">📷</span> Maak een foto van een bon</label>
         <input type="file" id="scanCamera" class="verborgen" accept="image/*" capture="environment">
         <p class="uitleg klein">Alles wordt op je iPhone zelf gelezen; je bonnen gaan niet naar internet. De eerste keer kan het lezen even duren.</p>
@@ -261,6 +298,10 @@
 
       <div id="scanResultaat" hidden>
         <p id="scanSamenvatting" class="uitleg" aria-live="polite"></p>
+        <div class="selectieacties">
+          <button type="button" class="knopklein" id="scanAllesAan">Alles aanvinken</button>
+          <button type="button" class="knopklein" id="scanAllesUit">Alles uitvinken</button>
+        </div>
         <ul id="scanLijst" class="scanlijst"></ul>
         <div class="scan-acties">
           <button type="button" class="groot inkomst" id="scanToevoegen">Toevoegen</button>
@@ -274,6 +315,7 @@
 
   <script src="btw.js"></script>
   <script src="bonlezer.js"></script>
+  <script src="bank.js"></script>
   <script src="ib.js"></script>
   <script src="scan.js"></script>
   <script src="app.js"></script>

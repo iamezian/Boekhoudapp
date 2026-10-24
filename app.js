@@ -37,8 +37,18 @@
     jaar: vandaag.getFullYear(),
     kwartaal: Math.ceil((vandaag.getMonth() + 1) / 3),
     filter: 'alle',
+    periode: 'kwartaal',
+    categorie: '',
+    selectie: null, // Set met id's als je boekingen aan het selecteren bent
     bewerkId: null,
   };
+
+  // Welke periode de pijltjes bovenin bedienen
+  function periodeModus() {
+    if (ui.view === 'belasting') return 'jaar';
+    if (ui.view === 'boekingen') return ui.periode;
+    return 'kwartaal';
+  }
 
   function nieuweId() {
     return (crypto.randomUUID && crypto.randomUUID()) || Date.now().toString(36) + Math.random().toString(36).slice(2);
@@ -57,6 +67,7 @@
 
   function toonView(naam) {
     ui.view = naam;
+    ui.selectie = null;
     document.querySelectorAll('.view').forEach((v) => (v.hidden = v.id !== 'view-' + naam));
     document.querySelectorAll('.tabbar button').forEach((b) => {
       if (b.dataset.view === naam) b.setAttribute('aria-current', 'page');
@@ -68,8 +79,10 @@
   }
 
   function wisselKwartaal(stap) {
-    // Op het tabblad Belasting bladeren de pijltjes per jaar
-    if (ui.view === 'belasting') { ui.jaar += stap; render(); return; }
+    // Op het tabblad Belasting (of bij "heel jaar") bladeren de pijltjes per jaar
+    const modus = periodeModus();
+    if (modus === 'alles') return;
+    if (modus === 'jaar') { ui.jaar += stap; render(); return; }
     ui.kwartaal += stap;
     if (ui.kwartaal < 1) { ui.kwartaal = 4; ui.jaar -= 1; }
     if (ui.kwartaal > 4) { ui.kwartaal = 1; ui.jaar += 1; }
@@ -78,9 +91,11 @@
 
   // ---------- Weergave ----------
   function render() {
-    const perJaar = ui.view === 'belasting';
-    $('kwartaalLabel').textContent = perJaar ? String(ui.jaar) : `Q${ui.kwartaal} ${ui.jaar}`;
-    $('kwartaalLabel').setAttribute('aria-label', perJaar ? `Jaar ${ui.jaar}` : `Kwartaal ${ui.kwartaal} van ${ui.jaar}`);
+    const modus = periodeModus();
+    const perJaar = modus === 'jaar';
+    $('kwartaalLabel').textContent = modus === 'alles' ? 'Alles' : perJaar ? String(ui.jaar) : `Q${ui.kwartaal} ${ui.jaar}`;
+    $('kwartaalLabel').setAttribute('aria-label', modus === 'alles' ? 'Alle jaren' : perJaar ? `Jaar ${ui.jaar}` : `Kwartaal ${ui.kwartaal} van ${ui.jaar}`);
+    $('vorigKwartaal').disabled = $('volgendKwartaal').disabled = modus === 'alles';
     $('vorigKwartaal').setAttribute('aria-label', perJaar ? 'Vorig jaar' : 'Vorig kwartaal');
     $('volgendKwartaal').setAttribute('aria-label', perJaar ? 'Volgend jaar' : 'Volgend kwartaal');
     // In "Meer" kies je met de pijltjes het jaar via het kwartaal
@@ -236,17 +251,52 @@
     $('rTotaal').textContent = he(Math.abs(a.totaal));
   }
 
+  function gefilterdeBoekingen() {
+    const laatsteImport = Math.max(0, ...state.boekingen.map((b) => b.importId || 0));
+    return state.boekingen
+      .filter((b) => ui.periode === 'alles' || (ui.periode === 'jaar' ? b.datum.startsWith(String(ui.jaar)) : BTW.inKwartaal(b, ui.jaar, ui.kwartaal)))
+      .filter((b) => ui.filter === 'alle' || b.soort === ui.filter)
+      .filter((b) => !ui.categorie ||
+        (ui.categorie === '__laatste' ? laatsteImport && b.importId === laatsteImport
+          : ui.categorie === '__bank' ? b.bank : b.categorie === ui.categorie))
+      .sort((a, b) => b.datum.localeCompare(a.datum) || (b.aangemaakt || 0) - (a.aangemaakt || 0));
+  }
+
   function renderLijst() {
     const lijst = $('lijst');
     lijst.innerHTML = '';
     document.querySelectorAll('.filter button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.filter === ui.filter)));
+    $('periode').value = ui.periode;
+    $('filterCategorie').value = ui.categorie;
 
-    const items = state.boekingen
-      .filter((b) => BTW.inKwartaal(b, ui.jaar, ui.kwartaal))
-      .filter((b) => ui.filter === 'alle' || b.soort === ui.filter)
-      .sort((a, b) => b.datum.localeCompare(a.datum) || (b.aangemaakt || 0) - (a.aangemaakt || 0));
-
+    const items = gefilterdeBoekingen();
+    const selecteren = !!ui.selectie;
+    if (selecteren) {
+      // Alleen zichtbare boekingen blijven geselecteerd
+      const zichtbaar = new Set(items.map((b) => b.id));
+      ui.selectie.forEach((id) => { if (!zichtbaar.has(id)) ui.selectie.delete(id); });
+    }
+    lijst.classList.toggle('selecteren', selecteren);
     $('leeg').hidden = items.length > 0;
+    $('leeg').innerHTML = state.boekingen.length && !items.length
+      ? 'Geen boekingen met deze filters.'
+      : 'Nog niets ingevoerd in dit kwartaal.<br>Tik op <strong>Inkomsten</strong> of <strong>Kosten</strong> om te beginnen.';
+
+    const som = items.reduce((t, b) => t + (b.soort === 'inkomst' ? 1 : -1) * BTW.splits(b).incl, 0);
+    $('lijstTelling').textContent = items.length
+      ? `${items.length} ${items.length === 1 ? 'boeking' : 'boekingen'} · saldo ${som < 0 ? '−' : '+'} ${fmt(Math.abs(som))}`
+      : '';
+    $('selecteerModus').setAttribute('aria-pressed', String(selecteren));
+    $('selecteerModus').textContent = selecteren ? 'Klaar' : 'Selecteren';
+    $('selecteerModus').hidden = !items.length && !selecteren;
+    $('selectieActies').hidden = !selecteren;
+    if (selecteren) {
+      const n = ui.selectie.size;
+      const alles = n > 0 && n === items.length;
+      $('selecteerAlles').textContent = alles ? 'Niets selecteren' : `Alles selecteren (${items.length})`;
+      $('verwijderSelectie').textContent = n ? `Verwijder ${n}` : 'Verwijder';
+      $('verwijderSelectie').disabled = !n;
+    }
 
     let huidigeDatum = null;
     items.forEach((b) => {
@@ -254,7 +304,8 @@
         huidigeDatum = b.datum;
         const kop = document.createElement('li');
         kop.className = 'datumkop';
-        kop.textContent = datumKop.format(parseISO(b.datum));
+        const d = parseISO(b.datum);
+        kop.textContent = ui.periode === 'kwartaal' ? datumKop.format(d) : datumLang.format(d);
         lijst.appendChild(kop);
       }
       const s = BTW.splits(b);
@@ -262,7 +313,6 @@
       const li = document.createElement('li');
       const knop = document.createElement('button');
       knop.type = 'button';
-      knop.addEventListener('click', () => openForm(b.soort, b));
 
       const badge = document.createElement('span');
       badge.className = 'badge ' + b.soort;
@@ -283,13 +333,62 @@
       bedrag.className = 'bedrag ' + b.soort;
       bedrag.textContent = (isInkomst ? '+ ' : '− ') + fmt(s.incl);
 
-      knop.setAttribute('aria-label',
-        `${isInkomst ? 'Inkomsten' : 'Kosten'}: ${oms.textContent}, ${fmt(s.incl)} inclusief btw, ${det.textContent}. Tik om te wijzigen.`);
+      const beschrijving = `${isInkomst ? 'Inkomsten' : 'Kosten'}: ${oms.textContent}, ${fmt(s.incl)} inclusief btw, ${det.textContent}`;
+      if (selecteren) {
+        const gekozen = ui.selectie.has(b.id);
+        knop.setAttribute('role', 'checkbox');
+        knop.setAttribute('aria-checked', String(gekozen));
+        knop.setAttribute('aria-label', beschrijving);
+        const vink = document.createElement('span');
+        vink.className = 'vink';
+        vink.setAttribute('aria-hidden', 'true');
+        vink.textContent = gekozen ? '✓' : '';
+        knop.append(vink);
+        knop.addEventListener('click', () => {
+          if (ui.selectie.has(b.id)) ui.selectie.delete(b.id); else ui.selectie.add(b.id);
+          renderLijst();
+          const terug = document.querySelector(`#lijst [data-id="${b.id}"]`);
+          if (terug) terug.focus();
+        });
+      } else {
+        knop.setAttribute('aria-label', beschrijving + '. Tik om te wijzigen.');
+        knop.addEventListener('click', () => openForm(b.soort, b));
+      }
+      knop.dataset.id = b.id;
       knop.append(badge, midden, bedrag);
       li.appendChild(knop);
       lijst.appendChild(li);
     });
   }
+
+  $('selecteerModus').addEventListener('click', () => {
+    ui.selectie = ui.selectie ? null : new Set();
+    renderLijst();
+  });
+  $('selecteerAlles').addEventListener('click', () => {
+    const items = gefilterdeBoekingen();
+    if (ui.selectie.size === items.length) ui.selectie.clear();
+    else items.forEach((b) => ui.selectie.add(b.id));
+    renderLijst();
+  });
+  $('verwijderSelectie').addEventListener('click', () => {
+    const n = ui.selectie.size;
+    if (!n || !confirm(`${n === 1 ? '1 boeking' : n + ' boekingen'} verwijderen? Dit kan niet ongedaan worden gemaakt.`)) return;
+    state.boekingen = state.boekingen.filter((b) => !ui.selectie.has(b.id));
+    bewaar();
+    ui.selectie = null;
+    toast(n === 1 ? '1 boeking verwijderd' : `${n} boekingen verwijderd`);
+    renderLijst();
+  });
+  $('periode').addEventListener('change', (e) => { ui.periode = e.target.value; render(); });
+  $('filterCategorie').addEventListener('change', (e) => { ui.categorie = e.target.value; renderLijst(); });
+  // Soorten kosten ook als filter
+  Object.entries(BonLezer.CATEGORIEEN).forEach(([waarde, label]) => {
+    const o = document.createElement('option');
+    o.value = waarde;
+    o.textContent = label;
+    $('filterCategorie').appendChild(o);
+  });
 
   function renderJaar() {
     $('jaarLabel').textContent = ui.jaar;
@@ -568,7 +667,8 @@
         $('scanStatus').textContent = totaal ? `${tekst} (${Math.min(klaar + 1, totaal)} van ${totaal})` : tekst;
         if (totaal) { balk.max = totaal; balk.value = klaar; } else balk.removeAttribute('value');
       });
-      scanItems = resultaten.map((r) => Object.assign(r, { meenemen: !r.fout && !!(r.boeking && r.boeking.bedrag) }));
+      scanItems = resultaten.map((r) => Object.assign(r, { meenemen: !r.fout && r.meenemen !== false && !!(r.boeking && r.boeking.bedrag) }));
+      markeerDubbel(scanItems);
       renderScan();
       scanStap('resultaat');
       $('scanSamenvatting').setAttribute('tabindex', '-1');
@@ -579,13 +679,38 @@
     }
   }
 
+  // Zelfde bedrag, zelfde soort en binnen 7 dagen: waarschijnlijk dezelfde uitgave (bijv. tankbon én de betaling op het bankafschrift,
+  // of een ZIP die je twee keer inleest). Die worden standaard niet meegenomen.
+  function markeerDubbel(items) {
+    const dagen = (a, b) => Math.abs(parseISO(a) - parseISO(b)) / 864e5;
+    const zelfde = (a, b) => a.soort === b.soort && a.datum && b.datum && dagen(a.datum, b.datum) <= 7 &&
+      BTW.splits(a).incl === BTW.splits(b).incl;
+    const bonnen = items.filter((i) => !i.fout && !i.bank);
+    items.forEach((item) => {
+      if (item.fout || !item.boeking.bedrag) return;
+      const b = item.boeking;
+      const bestaand = state.boekingen.find((x) => zelfde(x, b));
+      const alsBon = item.bank && bonnen.find((x) => x.boeking.bedrag && zelfde(x.boeking, b));
+      if (bestaand) {
+        item.meenemen = false;
+        b.notities.unshift(`Staat al in je boekingen: "${bestaand.omschrijving}" (${datumLang.format(parseISO(bestaand.datum))}).`);
+      } else if (alsBon) {
+        item.meenemen = false;
+        b.notities.unshift(`Dezelfde betaling als de bon "${alsBon.boeking.omschrijving}" hierboven: niet dubbel tellen.`);
+      }
+    });
+  }
+
   function renderScan() {
     const lijst = $('scanLijst');
     lijst.innerHTML = '';
     const goed = scanItems.filter((i) => !i.fout);
     const aantalMee = scanItems.filter((i) => i.meenemen).length;
     const letOp = goed.filter((i) => !i.boeking.zeker).length;
-    $('scanSamenvatting').textContent = `${goed.length} van ${scanItems.length} bestanden gelezen.` +
+    const bestanden = new Set(scanItems.map((i) => i.pad || i.naam)).size;
+    const fout = scanItems.filter((i) => i.fout).length;
+    $('scanSamenvatting').textContent = `${bestanden} ${bestanden === 1 ? 'bestand' : 'bestanden'} gelezen, ${goed.length} ${goed.length === 1 ? 'boeking' : 'boekingen'} gevonden.` +
+      (fout ? ` ${fout} ${fout === 1 ? 'bestand' : 'bestanden'} kon niet worden gelezen.` : '') +
       (letOp ? ` Bij ${letOp} is iets niet zeker gevonden; controleer die even (oranje rand).` : ' Controleer de gegevens en tik op Toevoegen.');
     $('scanToevoegen').textContent = aantalMee === 1 ? '1 boeking toevoegen' : `${aantalMee} boekingen toevoegen`;
     $('scanToevoegen').disabled = aantalMee === 0;
@@ -603,7 +728,7 @@
         const g = document.createElement('div');
         g.className = 'geenbeeld';
         g.setAttribute('aria-hidden', 'true');
-        g.textContent = item.fout ? '⚠️' : '📄';
+        g.textContent = item.fout ? '⚠️' : item.bank ? '🏦' : '📄';
         li.appendChild(g);
       }
 
@@ -628,7 +753,8 @@
         const det = document.createElement('p');
         det.className = 'det';
         const btwTekst = !s ? '' : s.nietAftrekbaar ? `btw ${fmt(s.nietAftrekbaar)} niet aftrekbaar` : s.btw ? `btw ${fmt(s.btw)} (${b.tarief}%)` : 'geen btw';
-        det.textContent = [b.datum ? datumLang.format(parseISO(b.datum)) : 'Datum onbekend', btwTekst, BonLezer.CATEGORIEEN[b.categorie]].filter(Boolean).join(' · ');
+        det.textContent = [b.datum ? datumLang.format(parseISO(b.datum)) : 'Datum onbekend', btwTekst, BonLezer.CATEGORIEEN[b.categorie],
+          item.bank ? 'bankafschrift' : null, item.pad && item.pad.includes('/') ? 'map ' + item.pad.split('/').slice(-2, -1)[0] : null].filter(Boolean).join(' · ');
         info.append(kern, det);
         if (b.notities.length) {
           const ul = document.createElement('ul');
@@ -678,14 +804,16 @@
       return;
     }
     let laatste = null;
+    const importId = Date.now();
     mee.forEach((i) => {
       const b = i.boeking;
       const boeking = {
-        id: nieuweId(), aangemaakt: Date.now(),
+        id: nieuweId(), aangemaakt: Date.now(), importId,
         soort: b.soort, bedrag: b.bedrag, inclBtw: b.inclBtw, tarief: b.tarief,
         btwBedrag: b.btwBedrag, btwAftrekbaar: b.btwAftrekbaar, categorie: b.soort === 'kost' ? b.categorie : null,
-        omschrijving: b.omschrijving || i.naam, datum: b.datum || vandaagISO(), bron: i.naam,
+        omschrijving: b.omschrijving || i.naam, datum: b.datum || vandaagISO(), bron: i.pad || i.naam,
       };
+      if (i.bank) boeking.bank = true;
       state.boekingen.push(boeking);
       laatste = boeking;
     });
@@ -698,6 +826,10 @@
     scanDialog.close();
     Scanner.stop();
     toast(mee.length === 1 ? '1 boeking toegevoegd' : `${mee.length} boekingen toegevoegd`);
+    // Laat precies zien wat er is toegevoegd (over alle periodes), zodat je het ook in één keer kunt terugdraaien
+    ui.periode = 'alles';
+    ui.categorie = '__laatste';
+    ui.filter = 'alle';
     toonView('boekingen');
   });
 
@@ -707,6 +839,10 @@
     startScan(bestanden);
   }));
   $('scanOpnieuw').addEventListener('click', () => scanStap('kiezen'));
+  [['scanAllesAan', true], ['scanAllesUit', false]].forEach(([id, aan]) => $(id).addEventListener('click', () => {
+    scanItems.forEach((i) => { if (!i.fout) i.meenemen = aan; });
+    renderScan();
+  }));
   $('scanSluit').addEventListener('click', () => {
     if (scanItems.some((i) => i.meenemen) && !$('scanResultaat').hidden &&
       !confirm('De ingelezen bonnen zijn nog niet toegevoegd. Toch sluiten?')) return;

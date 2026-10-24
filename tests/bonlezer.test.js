@@ -90,3 +90,38 @@ Te betalen 7,50`, 'parkeren.jpg');
   assert.strictEqual(r.datum, null);
   assert.strictEqual(r.zeker, false);
 });
+
+test('tankbonnen: btw ook bij OCR-fouten of zonder btw-regel', () => {
+  const r1 = lees('TinQ Amersfoort\nEuro95 30,00 L a 1,949\nTotaal 58,47\nBTVV 21% 10,15\n05.10.2026', 'a.jpg');
+  assert.deepStrictEqual([r1.tarief, r1.btwBedrag, r1.categorie], [21, 1015, 'auto']);
+  const r2 = lees('BP Zaandam\nUltimate 95  48,10\nTotaal  48,10\nIncl. 21% 8,35\n1-10-2026', 'b.jpg');
+  assert.strictEqual(r2.btwBedrag, 835);
+  const r3 = lees('TOTAL Energies\nBetaald met PIN\nBedrag EUR 90,00\nBrandstof Euro 95\n20-09-2026', 'c.jpg');
+  assert.strictEqual(r3.tarief, 21);
+  assert.strictEqual(require('../btw.js').splits(r3).btw, 1562);
+});
+
+test('map in ZIP: inkomsten en sponsoring', () => {
+  const { hintUitPad } = require('../bonlezer.js');
+  assert.deepStrictEqual(hintUitPad('Q3/Inkomsten/factuur-014.pdf'), { soort: 'inkomst' });
+  assert.deepStrictEqual(hintUitPad('Sponsoring/vv.pdf'), { soort: 'kost', categorie: 'sponsoring' });
+  assert.strictEqual(hintUitPad('los.pdf'), null);
+  const inkomst = lees('Mijn Bedrijf\nFactuur\nFactuurnummer: 2026-014\nFactuur aan:\nKlant BV\nFactuurdatum 30-09-2026\nTotaal excl. btw 1.000,00\nBtw 21% 210,00\nTotaal 1.210,00', 'f.pdf', { hint: { soort: 'inkomst' } });
+  assert.deepStrictEqual([inkomst.soort, inkomst.bedrag, inkomst.btwBedrag, inkomst.categorie], ['inkomst', 121000, 21000, null]);
+  assert.strictEqual(inkomst.omschrijving, 'Factuur 2026-014 – Klant BV');
+  const sponsor = lees('VV De Meern\nFactuur sponsorpakket\nTotaal 302,50\nBtw 21% 52,50\n01-09-2026', 's.pdf', { hint: { soort: 'kost', categorie: 'sponsoring' } });
+  assert.deepStrictEqual([sponsor.categorie, sponsor.btwBedrag, sponsor.btwAftrekbaar], ['sponsoring', 5250, true]);
+});
+
+test('motorrijtuigenbelasting: kosten zonder btw', () => {
+  const r = lees('Belastingdienst\nAanslag motorrijtuigenbelasting\nKenteken AB-123-C\nTe betalen 312,00\nDagtekening 1 september 2026', 'mrb.pdf');
+  assert.deepStrictEqual([r.categorie, r.tarief, r.bedrag], ['belastingen', 0, 31200]);
+  assert.ok(r.notities.some((n) => /zakelijk/.test(n)));
+  assert.ok(!r.notities.some((n) => /Geen btw op de bon/.test(n)));
+});
+
+test('aanslag: dagtekening, niet het tijdvak', () => {
+  const r = lees('Belastingdienst\nAanslag motorrijtuigenbelasting\nTijdvak: 01-10-2026 t/m 31-12-2026\nDagtekening: 2 oktober 2026\nTe betalen 312,00', 'mrb.pdf');
+  assert.strictEqual(r.datum, '2026-10-02');
+  assert.strictEqual(require('../bonlezer.js').categoriseer('Voetbalvereniging sponsorpakket').categorie, 'sponsoring');
+});
