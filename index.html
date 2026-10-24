@@ -39,6 +39,7 @@
       <div class="acties">
         <button type="button" class="groot inkomst" data-nieuw="inkomst"><span aria-hidden="true">＋</span> Inkomsten</button>
         <button type="button" class="groot kost" data-nieuw="kost"><span aria-hidden="true">−</span> Kosten</button>
+      <button type="button" class="groot scan" data-scan><span aria-hidden="true">📄</span> Bonnen inlezen <small>(foto, pdf of zip)</small></button>
       </div>
 
       <h2>Zo is het berekend</h2>
@@ -74,6 +75,7 @@
       <div class="acties">
         <button type="button" class="groot inkomst" data-nieuw="inkomst"><span aria-hidden="true">＋</span> Inkomsten</button>
         <button type="button" class="groot kost" data-nieuw="kost"><span aria-hidden="true">−</span> Kosten</button>
+      <button type="button" class="groot scan" data-scan><span aria-hidden="true">📄</span> Bonnen inlezen <small>(foto, pdf of zip)</small></button>
       </div>
       <div class="filter" role="group" aria-label="Filter boekingen">
         <button type="button" data-filter="alle" aria-pressed="true">Alles</button>
@@ -82,6 +84,34 @@
       </div>
       <ul id="lijst" class="lijst"></ul>
       <p id="leeg" class="leeg" hidden>Nog niets ingevoerd in dit kwartaal.<br>Tik op <strong>Inkomsten</strong> of <strong>Kosten</strong> om te beginnen.</p>
+    </section>
+
+    <!-- BELASTING -->
+    <section id="view-belasting" class="view" hidden aria-labelledby="titel">
+      <div class="resultaat betalen" aria-live="polite">
+        <p class="resultaat-label">Inkomstenbelasting + Zvw <span id="ibJaar"></span></p>
+        <p class="resultaat-bedrag" id="ibTotaal">€ 0,00</p>
+        <p class="resultaat-sub" id="ibSub"></p>
+      </div>
+
+      <h2>Jouw situatie</h2>
+      <div class="kaart instellingen">
+        <label class="schakel"><input type="checkbox" id="urencriterium"><span>Ik werk minstens 1.225 uur per jaar voor mijn bedrijf <small>(urencriterium)</small></span></label>
+        <label class="schakel"><input type="checkbox" id="starter"><span>Ik ben starter <small>(max. 3 keer in de eerste 5 jaar)</small></span></label>
+        <div class="veld">
+          <label for="loon">Ander inkomen per jaar, bijv. loon uit loondienst <small>(bruto)</small></label>
+          <div class="bedrag-invoer klein"><span aria-hidden="true">€</span><input id="loon" inputmode="decimal" autocomplete="off" placeholder="0"></div>
+        </div>
+        <div class="veld">
+          <label for="ingehouden">Al ingehouden loonheffing <small>(staat op je jaaropgaaf)</small></label>
+          <div class="bedrag-invoer klein"><span aria-hidden="true">€</span><input id="ingehouden" inputmode="decimal" autocomplete="off" placeholder="0"></div>
+        </div>
+      </div>
+
+      <h2>Zo is het berekend</h2>
+      <dl class="kaart rijen" id="ibRijen"></dl>
+
+      <p class="voetnoot" id="ibVoetnoot">Dit is een schatting voor ondernemers onder de AOW-leeftijd. Toeslagen, hypotheekrente, box 2 en 3, afschrijvingen en de kleinschaligheidsinvesteringsaftrek zijn niet meegenomen. Je voorlopige aanslag kan anders zijn.</p>
     </section>
 
     <!-- MEER -->
@@ -120,6 +150,7 @@
   <nav class="tabbar" aria-label="Hoofdmenu">
     <button type="button" data-view="overzicht" aria-current="page"><span aria-hidden="true" class="ico">◎</span>Overzicht</button>
     <button type="button" data-view="boekingen"><span aria-hidden="true" class="ico">☰</span>Boekingen</button>
+    <button type="button" data-view="belasting"><span aria-hidden="true" class="ico">%</span>Belasting</button>
     <button type="button" data-view="meer"><span aria-hidden="true" class="ico">⋯</span>Meer</button>
   </nav>
 
@@ -160,7 +191,21 @@
         <label><input type="radio" name="tarief" value="0"><span>0% / geen</span></label>
       </fieldset>
 
+      <div class="veld">
+        <label for="btwBedrag">Btw-bedrag op de bon <small>(optioneel, anders uitgerekend)</small></label>
+        <div class="bedrag-invoer klein"><span aria-hidden="true">€</span><input id="btwBedrag" name="btwBedrag" inputmode="decimal" autocomplete="off" placeholder="automatisch"></div>
+      </div>
+
+      <div id="kostVelden">
+        <div class="veld">
+          <label for="categorie">Soort kosten</label>
+          <select id="categorie" name="categorie"></select>
+        </div>
+        <label class="schakel kaart"><input type="checkbox" id="btwAftrekbaar" name="btwAftrekbaar" checked><span>Btw is aftrekbaar <small>(uitzetten bij horeca, vliegtickets of buitenlandse btw)</small></span></label>
+      </div>
+
       <p id="berekening" class="berekening" aria-live="polite"></p>
+      <p id="formNotities" class="notities" hidden></p>
 
       <div class="veld">
         <label for="omschrijving">Omschrijving</label>
@@ -176,9 +221,46 @@
     </form>
   </dialog>
 
+  <!-- BONNEN INLEZEN -->
+  <dialog id="scanDialog" aria-labelledby="scanTitel">
+    <div class="sheet">
+      <header class="sheet-kop">
+        <button type="button" class="tekstknop" id="scanSluit">Sluit</button>
+        <h2 id="scanTitel">Bonnen inlezen</h2>
+        <span></span>
+      </header>
+
+      <div id="scanKiezen">
+        <p class="uitleg">Kies foto's van bonnen, PDF-facturen of een ZIP-bestand met meerdere bonnen. De app leest het bedrag, de btw en de datum. Daarna controleer je alles voordat het wordt opgeslagen.</p>
+        <label class="groot scan blok" for="scanBestanden"><span aria-hidden="true">📁</span> Kies bestanden</label>
+        <input type="file" id="scanBestanden" class="verborgen" multiple accept="image/*,application/pdf,.pdf,application/zip,.zip">
+        <label class="groot scan blok licht" for="scanCamera"><span aria-hidden="true">📷</span> Maak een foto van een bon</label>
+        <input type="file" id="scanCamera" class="verborgen" accept="image/*" capture="environment">
+        <p class="uitleg klein">Alles wordt op je iPhone zelf gelezen; je bonnen gaan niet naar internet. De eerste keer kan het lezen even duren.</p>
+      </div>
+
+      <div id="scanBezig" hidden>
+        <progress id="scanVoortgang" max="1" value="0" aria-describedby="scanStatus"></progress>
+        <p id="scanStatus" class="uitleg" aria-live="polite"></p>
+      </div>
+
+      <div id="scanResultaat" hidden>
+        <p id="scanSamenvatting" class="uitleg" aria-live="polite"></p>
+        <ul id="scanLijst" class="scanlijst"></ul>
+        <div class="scan-acties">
+          <button type="button" class="groot inkomst" id="scanToevoegen">Toevoegen</button>
+          <button type="button" class="tekstknop" id="scanOpnieuw">Andere bestanden kiezen</button>
+        </div>
+      </div>
+    </div>
+  </dialog>
+
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <script src="btw.js"></script>
+  <script src="bonlezer.js"></script>
+  <script src="ib.js"></script>
+  <script src="scan.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

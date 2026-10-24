@@ -29,6 +29,7 @@
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
 
   const state = laad();
+  state.instellingen = Object.assign({ urencriterium: true, starter: false, loon: 0, ingehouden: 0 }, state.instellingen);
   const vandaag = new Date();
   const ui = {
     view: 'overzicht',
@@ -51,7 +52,7 @@
   }
 
   // ---------- Navigatie ----------
-  const TITELS = { overzicht: 'Overzicht', boekingen: 'Boekingen', meer: 'Meer' };
+  const TITELS = { overzicht: 'Overzicht', boekingen: 'Boekingen', belasting: 'Belasting', meer: 'Meer' };
 
   function toonView(naam) {
     ui.view = naam;
@@ -66,6 +67,8 @@
   }
 
   function wisselKwartaal(stap) {
+    // Op het tabblad Belasting bladeren de pijltjes per jaar
+    if (ui.view === 'belasting') { ui.jaar += stap; render(); return; }
     ui.kwartaal += stap;
     if (ui.kwartaal < 1) { ui.kwartaal = 4; ui.jaar -= 1; }
     if (ui.kwartaal > 4) { ui.kwartaal = 1; ui.jaar += 1; }
@@ -74,13 +77,85 @@
 
   // ---------- Weergave ----------
   function render() {
-    $('kwartaalLabel').textContent = `Q${ui.kwartaal} ${ui.jaar}`;
-    $('kwartaalLabel').setAttribute('aria-label', `Kwartaal ${ui.kwartaal} van ${ui.jaar}`);
+    const perJaar = ui.view === 'belasting';
+    $('kwartaalLabel').textContent = perJaar ? String(ui.jaar) : `Q${ui.kwartaal} ${ui.jaar}`;
+    $('kwartaalLabel').setAttribute('aria-label', perJaar ? `Jaar ${ui.jaar}` : `Kwartaal ${ui.kwartaal} van ${ui.jaar}`);
+    $('vorigKwartaal').setAttribute('aria-label', perJaar ? 'Vorig jaar' : 'Vorig kwartaal');
+    $('volgendKwartaal').setAttribute('aria-label', perJaar ? 'Volgend jaar' : 'Volgend kwartaal');
     // In "Meer" kies je met de pijltjes het jaar via het kwartaal
     if (ui.view === 'overzicht') renderOverzicht();
     if (ui.view === 'boekingen') renderLijst();
+    if (ui.view === 'belasting') renderBelasting();
     if (ui.view === 'meer') renderJaar();
   }
+
+  function boekingenVanJaar(jaar) {
+    return state.boekingen.filter((b) => b.datum.startsWith(String(jaar)));
+  }
+
+  function centenNaarInvoer(c) {
+    return c ? (c / 100).toFixed(2).replace('.', ',').replace(/,00$/, '') : '';
+  }
+
+  function renderBelasting() {
+    const inst = state.instellingen;
+    $('urencriterium').checked = inst.urencriterium;
+    $('starter').checked = inst.starter;
+    $('starter').disabled = !inst.urencriterium;
+    if (document.activeElement !== $('loon')) $('loon').value = centenNaarInvoer(inst.loon);
+    if (document.activeElement !== $('ingehouden')) $('ingehouden').value = centenNaarInvoer(inst.ingehouden);
+
+    const o = BTW.overzicht(boekingenVanJaar(ui.jaar));
+    const r = IB.bereken({
+      jaar: ui.jaar, winst: o.winst, horecaKosten: o.kosten.horeca,
+      urencriterium: inst.urencriterium, starter: inst.starter && inst.urencriterium,
+      loon: inst.loon, ingehoudenLoonheffing: inst.ingehouden,
+    });
+
+    $('ibJaar').textContent = ui.jaar;
+    $('ibTotaal').textContent = fmt(Math.max(0, r.totaal));
+    const maand = Math.max(0, Math.round(r.totaal / 12));
+    $('ibSub').textContent = o.inkomsten.aantal + o.kosten.aantal === 0
+      ? 'Nog geen boekingen in dit jaar.'
+      : r.totaal > 0 ? `Zet ongeveer ${fmt(maand)} per maand apart` : 'Je hoeft naar verwachting niets bij te betalen';
+
+    const p = r.parameters;
+    const rijen = $('ibRijen');
+    rijen.innerHTML = '';
+    const voeg = (label, waarde, klasse) => { const d = rij(label, waarde); if (klasse) d.className = klasse; rijen.appendChild(d); };
+    // Aftrekposten met het juiste teken, ook bij verlies
+    const af = (c) => (c >= 0 ? '− ' : '+ ') + fmt(Math.abs(c));
+    voeg('Inkomsten (excl. btw)', fmt(o.inkomsten.excl));
+    voeg('Kosten (excl. btw)', '− ' + fmt(o.kosten.excl));
+    voeg(r.winst >= 0 ? 'Winst' : 'Verlies', fmt(Math.abs(r.winst)), 'sub');
+    if (r.nietAftrekbaarHoreca) voeg('Eten & drinken: 20% niet aftrekbaar', '+ ' + fmt(r.nietAftrekbaarHoreca), 'min');
+    if (r.zelfstandigenaftrek) voeg(`Zelfstandigenaftrek`, af(r.zelfstandigenaftrek), 'min');
+    if (r.startersaftrek) voeg('Startersaftrek', af(r.startersaftrek), 'min');
+    if (r.mkb) voeg(`Mkb-winstvrijstelling (${String(p.mkbPct).replace('.', ',')}%)`, af(r.mkb), 'min');
+    voeg(r.belastbareWinst >= 0 ? 'Belastbare winst' : 'Fiscaal verlies', fmt(Math.abs(r.belastbareWinst)), 'sub');
+    if (r.loon) voeg('Ander inkomen', '+ ' + fmt(r.loon), 'min');
+    voeg('Inkomstenbelasting vóór kortingen', fmt(r.belastingVoorKorting + r.aftrekbeperking));
+    voeg('Algemene heffingskorting', '− ' + fmt(r.ahk), 'min');
+    voeg('Arbeidskorting', '− ' + fmt(r.ak), 'min');
+    if (r.ingehouden) voeg('Al ingehouden loonheffing', '− ' + fmt(r.ingehouden), 'min');
+    voeg(r.nogTeBetalen >= 0 ? 'Inkomstenbelasting te betalen' : 'Inkomstenbelasting terug', fmt(Math.abs(r.nogTeBetalen)), 'sub');
+    voeg(`Bijdrage Zvw (${String(p.zvw.pct).replace('.', ',')}% van ${fmt(r.zvwGrondslag)})`, fmt(r.zvw), 'sub');
+    voeg('Totaal', fmt(r.totaal), 'totaal');
+
+    const basis = 'Dit is een schatting voor ondernemers onder de AOW-leeftijd. Toeslagen, hypotheekrente, box 2 en 3, afschrijvingen en de kleinschaligheidsinvesteringsaftrek zijn niet meegenomen. Je voorlopige aanslag kan anders zijn.';
+    $('ibVoetnoot').textContent = (r.benadering ? `Let op: voor ${ui.jaar} zijn nog geen tarieven bekend, gerekend met die van ${r.jaar}. ` : `Tarieven ${r.jaar}. `) + basis;
+  }
+
+  $('urencriterium').addEventListener('change', (e) => { state.instellingen.urencriterium = e.target.checked; bewaar(); renderBelasting(); });
+  $('starter').addEventListener('change', (e) => { state.instellingen.starter = e.target.checked; bewaar(); renderBelasting(); });
+  [['loon', 'loon'], ['ingehouden', 'ingehouden']].forEach(([id, sleutel]) => {
+    $(id).addEventListener('input', (e) => {
+      const c = BTW.parseBedrag(e.target.value);
+      state.instellingen[sleutel] = c == null ? 0 : c;
+      bewaar();
+      renderBelasting();
+    });
+  });
 
   function renderOverzicht() {
     const o = BTW.kwartaalOverzicht(state.boekingen, ui.jaar, ui.kwartaal);
@@ -159,7 +234,8 @@
       oms.textContent = b.omschrijving || (isInkomst ? 'Inkomsten' : 'Kosten');
       const det = document.createElement('span');
       det.className = 'det';
-      det.textContent = b.tarief ? `${b.tarief}% btw: ${fmt(s.btw)}` : 'Geen btw';
+      det.textContent = s.nietAftrekbaar ? `Btw ${fmt(s.nietAftrekbaar)} niet aftrekbaar`
+        : s.btw ? `${b.tarief}% btw: ${fmt(s.btw)}` : 'Geen btw';
       midden.append(oms, det);
 
       const bedrag = document.createElement('span');
@@ -206,20 +282,40 @@
   const dialog = $('formDialog');
   const form = $('form');
 
-  function openForm(soort, boeking) {
+  // Vul de keuzelijst met soorten kosten
+  Object.entries(BonLezer.CATEGORIEEN).forEach(([waarde, label]) => {
+    const o = document.createElement('option');
+    o.value = waarde;
+    o.textContent = label;
+    $('categorie').appendChild(o);
+  });
+
+  // opties.concept: een ingelezen bon die nog niet is opgeslagen; opties.bijBewaren krijgt de gewijzigde boeking
+  let formOpties = null;
+
+  function openForm(soort, boeking, opties) {
     form.reset();
-    ui.bewerkId = boeking ? boeking.id : null;
-    $('formTitel').textContent = boeking ? 'Boeking wijzigen' : 'Nieuwe boeking';
-    $('verwijder').hidden = !boeking;
+    formOpties = opties || null;
+    const concept = !!(opties && opties.concept);
+    ui.bewerkId = boeking && !concept ? boeking.id : null;
+    $('formTitel').textContent = concept ? 'Bon controleren' : boeking ? 'Boeking wijzigen' : 'Nieuwe boeking';
+    $('verwijder').hidden = !boeking || concept;
     $('bedrag').removeAttribute('aria-invalid');
     $('bedragFout').hidden = true;
 
     form.soort.value = boeking ? boeking.soort : soort;
-    $('bedrag').value = boeking ? (boeking.bedrag / 100).toFixed(2).replace('.', ',') : '';
+    $('bedrag').value = boeking && boeking.bedrag ? (boeking.bedrag / 100).toFixed(2).replace('.', ',') : '';
     form.incl.value = boeking ? (boeking.inclBtw ? 'ja' : 'nee') : 'ja';
     form.tarief.value = String(boeking ? boeking.tarief : 21);
+    $('btwBedrag').value = boeking && boeking.btwBedrag != null ? (boeking.btwBedrag / 100).toFixed(2).replace('.', ',') : '';
+    $('categorie').value = (boeking && boeking.categorie) || 'algemeen';
+    $('btwAftrekbaar').checked = !boeking || boeking.btwAftrekbaar !== false;
     $('omschrijving').value = boeking ? boeking.omschrijving : '';
-    $('datum').value = boeking ? boeking.datum : standaardDatum();
+    $('datum').value = boeking && boeking.datum ? boeking.datum : standaardDatum();
+
+    const notities = concept && boeking.notities && boeking.notities.length ? boeking.notities : null;
+    $('formNotities').hidden = !notities;
+    $('formNotities').textContent = notities ? notities.join(' ') : '';
 
     updateBerekening();
     dialog.showModal();
@@ -235,11 +331,15 @@
   }
 
   function leesForm() {
+    const soort = form.soort.value;
     return {
-      soort: form.soort.value,
+      soort,
       bedrag: BTW.parseBedrag($('bedrag').value),
       inclBtw: form.incl.value === 'ja',
       tarief: Number(form.tarief.value),
+      btwBedrag: BTW.parseBedrag($('btwBedrag').value),
+      categorie: soort === 'kost' ? $('categorie').value : null,
+      btwAftrekbaar: soort === 'kost' ? $('btwAftrekbaar').checked : true,
       omschrijving: $('omschrijving').value.trim(),
       datum: $('datum').value,
     };
@@ -247,11 +347,15 @@
 
   function updateBerekening() {
     const b = leesForm();
+    $('kostVelden').hidden = b.soort !== 'kost';
     const el = $('berekening');
     if (b.bedrag == null || b.bedrag === 0) { el.textContent = ''; return; }
     const s = BTW.splits(b);
     el.innerHTML = '';
-    const delen = [['Excl. btw', s.excl], [`Btw ${b.tarief}%`, s.btw], ['Incl. btw', s.incl]];
+    const btwLabel = b.btwBedrag != null ? 'Btw' : `Btw ${b.tarief}%`;
+    const delen = s.nietAftrekbaar
+      ? [['Kosten', s.excl], ['waarvan btw (niet aftrekbaar)', s.nietAftrekbaar]]
+      : [['Excl. btw', s.excl], [btwLabel, s.btw], ['Incl. btw', s.incl]];
     delen.forEach(([label, w], i) => {
       if (i) el.append(' · ');
       el.append(label + ' ');
@@ -264,8 +368,11 @@
   function sluitForm() {
     dialog.close();
     ui.bewerkId = null;
+    formOpties = null;
   }
 
+  // Horeca: btw standaard niet aftrekbaar
+  $('categorie').addEventListener('change', (e) => { $('btwAftrekbaar').checked = e.target.value !== 'horeca'; });
   form.addEventListener('input', updateBerekening);
   form.addEventListener('change', updateBerekening);
   $('annuleer').addEventListener('click', sluitForm);
@@ -280,6 +387,13 @@
       return;
     }
     if (!b.datum) b.datum = vandaagISO();
+
+    if (formOpties && formOpties.bijBewaren) {
+      const terug = formOpties.bijBewaren;
+      sluitForm();
+      terug(b);
+      return;
+    }
 
     if (ui.bewerkId) {
       const i = state.boekingen.findIndex((x) => x.id === ui.bewerkId);
@@ -332,14 +446,15 @@
   function csv(boekingen) {
     const getal = (c) => (c / 100).toFixed(2).replace('.', ',');
     const tekst = (t) => '"' + String(t).replace(/"/g, '""') + '"';
-    const regels = [['Datum', 'Soort', 'Omschrijving', 'Bedrag excl. btw', 'Btw-tarief', 'Btw', 'Bedrag incl. btw'].join(';')];
+    const regels = [['Datum', 'Soort', 'Omschrijving', 'Categorie', 'Bedrag excl. btw', 'Btw-tarief', 'Btw', 'Niet-aftrekbare btw', 'Bedrag incl. btw'].join(';')];
     boekingen
       .slice()
       .sort((a, b) => a.datum.localeCompare(b.datum))
       .forEach((b) => {
         const s = BTW.splits(b);
         regels.push([b.datum, b.soort === 'inkomst' ? 'Inkomsten' : 'Kosten', tekst(b.omschrijving || ''),
-          getal(s.excl), b.tarief + '%', getal(s.btw), getal(s.incl)].join(';'));
+          tekst(b.categorie ? BonLezer.CATEGORIEEN[b.categorie] || '' : ''),
+          getal(s.excl), b.tarief + '%', getal(s.btw), getal(s.nietAftrekbaar), getal(s.incl)].join(';'));
       });
     // BOM zodat Excel de euro- en accenttekens goed leest
     return '﻿' + regels.join('\r\n');
@@ -386,6 +501,178 @@
     render();
     toast('Alle gegevens gewist');
   });
+
+  // ---------- Bonnen inlezen ----------
+  const scanDialog = $('scanDialog');
+  let scanItems = [];
+
+  function scanStap(stap) {
+    $('scanKiezen').hidden = stap !== 'kiezen';
+    $('scanBezig').hidden = stap !== 'bezig';
+    $('scanResultaat').hidden = stap !== 'resultaat';
+  }
+
+  function openScan() {
+    scanItems = [];
+    scanStap('kiezen');
+    scanDialog.showModal();
+  }
+
+  async function startScan(bestanden) {
+    if (!bestanden || !bestanden.length) return;
+    scanStap('bezig');
+    const balk = $('scanVoortgang');
+    try {
+      const resultaten = await Scanner.lees(bestanden, (tekst, klaar, totaal) => {
+        $('scanStatus').textContent = totaal ? `${tekst} (${Math.min(klaar + 1, totaal)} van ${totaal})` : tekst;
+        if (totaal) { balk.max = totaal; balk.value = klaar; } else balk.removeAttribute('value');
+      });
+      scanItems = resultaten.map((r) => Object.assign(r, { meenemen: !r.fout && !!(r.boeking && r.boeking.bedrag) }));
+      renderScan();
+      scanStap('resultaat');
+      $('scanSamenvatting').setAttribute('tabindex', '-1');
+      $('scanSamenvatting').focus();
+    } catch (e) {
+      toast('Inlezen mislukt: ' + (e.message || 'onbekende fout'));
+      scanStap('kiezen');
+    }
+  }
+
+  function renderScan() {
+    const lijst = $('scanLijst');
+    lijst.innerHTML = '';
+    const goed = scanItems.filter((i) => !i.fout);
+    const aantalMee = scanItems.filter((i) => i.meenemen).length;
+    const letOp = goed.filter((i) => !i.boeking.zeker).length;
+    $('scanSamenvatting').textContent = `${goed.length} van ${scanItems.length} bestanden gelezen.` +
+      (letOp ? ` Bij ${letOp} is iets niet zeker gevonden; controleer die even (oranje rand).` : ' Controleer de gegevens en tik op Toevoegen.');
+    $('scanToevoegen').textContent = aantalMee === 1 ? '1 boeking toevoegen' : `${aantalMee} boekingen toevoegen`;
+    $('scanToevoegen').disabled = aantalMee === 0;
+
+    scanItems.forEach((item, i) => {
+      const li = document.createElement('li');
+      li.className = 'scankaart' + (item.fout ? ' fout' : !item.boeking.zeker ? ' let-op' : '') + (item.meenemen ? '' : ' uit');
+
+      if (item.voorbeeld) {
+        const img = document.createElement('img');
+        img.src = item.voorbeeld;
+        img.alt = '';
+        li.appendChild(img);
+      } else {
+        const g = document.createElement('div');
+        g.className = 'geenbeeld';
+        g.setAttribute('aria-hidden', 'true');
+        g.textContent = item.fout ? '⚠️' : '📄';
+        li.appendChild(g);
+      }
+
+      const info = document.createElement('div');
+      const h = document.createElement('h3');
+      const b = item.boeking;
+      h.textContent = item.fout ? item.naam : b.omschrijving || item.naam;
+      info.appendChild(h);
+
+      if (item.fout) {
+        const p = document.createElement('p');
+        p.className = 'det';
+        p.textContent = item.fout;
+        info.appendChild(p);
+      } else {
+        const s = b.bedrag ? BTW.splits(b) : null;
+        const kern = document.createElement('p');
+        kern.className = 'kerngetallen';
+        const sterk = document.createElement('strong');
+        sterk.textContent = s ? fmt(s.incl) : 'Bedrag onbekend';
+        kern.append(b.soort === 'inkomst' ? 'Inkomsten ' : 'Kosten ', sterk);
+        const det = document.createElement('p');
+        det.className = 'det';
+        const btwTekst = !s ? '' : s.nietAftrekbaar ? `btw ${fmt(s.nietAftrekbaar)} niet aftrekbaar` : s.btw ? `btw ${fmt(s.btw)} (${b.tarief}%)` : 'geen btw';
+        det.textContent = [b.datum ? datumLang.format(parseISO(b.datum)) : 'Datum onbekend', btwTekst, BonLezer.CATEGORIEEN[b.categorie]].filter(Boolean).join(' · ');
+        info.append(kern, det);
+        if (b.notities.length) {
+          const ul = document.createElement('ul');
+          ul.className = 'notities';
+          b.notities.forEach((n) => { const nl = document.createElement('li'); nl.textContent = n; ul.appendChild(nl); });
+          info.appendChild(ul);
+        }
+      }
+      li.appendChild(info);
+
+      if (!item.fout) {
+        const rijKnoppen = document.createElement('div');
+        rijKnoppen.className = 'knoppenrij';
+        const lab = document.createElement('label');
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = item.meenemen;
+        cb.addEventListener('change', () => { item.meenemen = cb.checked; renderScan(); });
+        lab.append(cb, 'Toevoegen');
+        const wijzig = document.createElement('button');
+        wijzig.type = 'button';
+        wijzig.className = 'knopklein';
+        wijzig.textContent = 'Controleer / wijzig';
+        wijzig.setAttribute('aria-label', `Controleer of wijzig ${h.textContent}`);
+        wijzig.addEventListener('click', () => {
+          openForm(b.soort, b, {
+            concept: true,
+            bijBewaren: (nieuw) => {
+              item.boeking = Object.assign({}, b, nieuw, { zeker: true, notities: b.notities.filter((n) => !/niet gevonden/.test(n)) });
+              item.meenemen = true;
+              renderScan();
+            },
+          });
+        });
+        rijKnoppen.append(lab, wijzig);
+        li.appendChild(rijKnoppen);
+      }
+      lijst.appendChild(li);
+    });
+  }
+
+  $('scanToevoegen').addEventListener('click', () => {
+    const mee = scanItems.filter((i) => i.meenemen && !i.fout);
+    const zonderBedrag = mee.filter((i) => !i.boeking.bedrag);
+    if (zonderBedrag.length) {
+      toast('Vul eerst het bedrag in bij: ' + zonderBedrag.map((i) => i.boeking.omschrijving || i.naam).join(', '));
+      return;
+    }
+    let laatste = null;
+    mee.forEach((i) => {
+      const b = i.boeking;
+      const boeking = {
+        id: nieuweId(), aangemaakt: Date.now(),
+        soort: b.soort, bedrag: b.bedrag, inclBtw: b.inclBtw, tarief: b.tarief,
+        btwBedrag: b.btwBedrag, btwAftrekbaar: b.btwAftrekbaar, categorie: b.soort === 'kost' ? b.categorie : null,
+        omschrijving: b.omschrijving || i.naam, datum: b.datum || vandaagISO(), bron: i.naam,
+      };
+      state.boekingen.push(boeking);
+      laatste = boeking;
+    });
+    bewaar();
+    if (laatste) {
+      const k = BTW.kwartaalVan(laatste.datum);
+      ui.jaar = k.jaar;
+      ui.kwartaal = k.kwartaal;
+    }
+    scanDialog.close();
+    Scanner.stop();
+    toast(mee.length === 1 ? '1 boeking toegevoegd' : `${mee.length} boekingen toegevoegd`);
+    toonView('boekingen');
+  });
+
+  ['scanBestanden', 'scanCamera'].forEach((id) => $(id).addEventListener('change', (e) => {
+    const bestanden = Array.from(e.target.files || []);
+    e.target.value = '';
+    startScan(bestanden);
+  }));
+  $('scanOpnieuw').addEventListener('click', () => scanStap('kiezen'));
+  $('scanSluit').addEventListener('click', () => {
+    if (scanItems.some((i) => i.meenemen) && !$('scanResultaat').hidden &&
+      !confirm('De ingelezen bonnen zijn nog niet toegevoegd. Toch sluiten?')) return;
+    scanDialog.close();
+    Scanner.stop();
+  });
+  document.querySelectorAll('[data-scan]').forEach((b) => b.addEventListener('click', openScan));
 
   // ---------- Overig ----------
   let toastTimer;

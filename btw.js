@@ -24,10 +24,14 @@
     return parseInt(heel, 10) * 100 + parseInt((dec + '00').slice(0, 2), 10);
   }
 
-  // Splitst een boeking in bedrag exclusief btw en het btw-bedrag.
-  function splits(boeking) {
+  // Btw zoals die op de bon staat: een ingevuld btw-bedrag gaat voor, anders uitgerekend met het tarief.
+  function btwOpBon(boeking) {
     const bedrag = boeking.bedrag;
     const tarief = boeking.tarief;
+    if (boeking.btwBedrag != null && boeking.btwBedrag >= 0) {
+      const btw = boeking.btwBedrag;
+      return boeking.inclBtw ? { excl: bedrag - btw, btw, incl: bedrag } : { excl: bedrag, btw, incl: bedrag + btw };
+    }
     if (!tarief) return { excl: bedrag, btw: 0, incl: bedrag };
     if (boeking.inclBtw) {
       const excl = Math.round((bedrag * 100) / (100 + tarief));
@@ -35,6 +39,16 @@
     }
     const btw = Math.round((bedrag * tarief) / 100);
     return { excl: bedrag, btw, incl: bedrag + btw };
+  }
+
+  // Splitst een boeking in bedrag exclusief btw en de btw die meetelt voor de aangifte.
+  // Niet-aftrekbare btw op kosten (bijv. horeca, vliegtickets, buitenlandse btw) hoort bij de kosten zelf.
+  function splits(boeking) {
+    const s = btwOpBon(boeking);
+    if (boeking.soort === 'kost' && boeking.btwAftrekbaar === false) {
+      return { excl: s.incl, btw: 0, incl: s.incl, nietAftrekbaar: s.btw };
+    }
+    return Object.assign(s, { nietAftrekbaar: 0 });
   }
 
   function kwartaalVan(datum) {
@@ -62,7 +76,7 @@
   function overzicht(boekingen) {
     const r = {
       inkomsten: { excl: 0, btw: 0, incl: 0, perTarief: leegPerTarief(), aantal: 0 },
-      kosten: { excl: 0, btw: 0, incl: 0, perTarief: leegPerTarief(), aantal: 0 },
+      kosten: { excl: 0, btw: 0, incl: 0, perTarief: leegPerTarief(), aantal: 0, nietAftrekbaar: 0, horeca: 0 },
     };
     boekingen.forEach((b) => {
       const s = splits(b);
@@ -71,6 +85,10 @@
       doel.btw += s.btw;
       doel.incl += s.incl;
       doel.aantal += 1;
+      if (b.soort !== 'inkomst') {
+        r.kosten.nietAftrekbaar += s.nietAftrekbaar;
+        if (b.categorie === 'horeca') r.kosten.horeca += s.excl;
+      }
       if (!doel.perTarief[b.tarief]) doel.perTarief[b.tarief] = { excl: 0, btw: 0 };
       doel.perTarief[b.tarief].excl += s.excl;
       doel.perTarief[b.tarief].btw += s.btw;

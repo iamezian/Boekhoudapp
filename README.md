@@ -6,10 +6,16 @@ Een eenvoudige app om je inkomsten en kosten bij te houden. Hij berekent meteen 
 - **Inkomsten en kosten invoeren**: bedrag inclusief of exclusief btw, tarief 21%, 9% of 0%
 - **Hulp bij de aangifte**: de bedragen per rubriek (1a, 1b, 1e, 5a, 5b), afgerond in je voordeel
 - **Jaaroverzicht** met winst en btw per kwartaal
+- **Bonnen inlezen**: kies foto's, PDF's of een ZIP-bestand met bonnen. De app leest bedrag, btw en datum (zoals 12-03-2026 of 12 maart 2026) en herkent het soort kosten. Daarna controleer je alles en voeg je het toe.
+  - Vliegtickets: wel kosten, btw niet verrekenbaar
+  - Eten en drinken in de horeca: btw niet aftrekbaar, 80% telt mee voor de inkomstenbelasting
+  - Buitenlandse btw: niet aftrekbaar in je Nederlandse aangifte
+  - Btw verlegd, bonnen met zowel 9% als 21% btw, en apparatuur boven € 450 (afschrijven)
+- **Belasting**: een schatting van je inkomstenbelasting en de bijdrage Zorgverzekeringswet (Zvw) per jaar, met zelfstandigenaftrek, startersaftrek, mkb-winstvrijstelling, heffingskortingen en eventueel loon uit loondienst. Tarieven 2025 en 2026.
 - **Exporteren** naar Excel (CSV) voor je boekhouder, plus back-up en terugzetten
 - Werkt offline, ondersteunt donkere modus, grotere tekst (Dynamic Type) en VoiceOver
 
-Je gegevens blijven alleen op je eigen iPhone; er wordt niets naar een server gestuurd.
+Je gegevens en bonnen blijven alleen op je eigen iPhone; er wordt niets naar een server gestuurd. Het lezen van bonnen gebeurt ook op de telefoon zelf. Werkt op iOS 16.4 of nieuwer.
 
 ## Op je iPhone zetten
 
@@ -22,5 +28,5 @@ Daarna open je de app gewoon via het icoon op je beginscherm.
 ## Testen
 
 ```
-node --test tests/btw.test.js
+node --test tests/*.test.js
 ```

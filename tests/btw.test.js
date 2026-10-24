@@ -13,10 +13,10 @@ test('bedragen invoeren', () => {
 });
 
 test('btw splitsen', () => {
-  assert.deepStrictEqual(BTW.splits({ bedrag: 12100, tarief: 21, inclBtw: true }), { excl: 10000, btw: 2100, incl: 12100 });
-  assert.deepStrictEqual(BTW.splits({ bedrag: 10000, tarief: 21, inclBtw: false }), { excl: 10000, btw: 2100, incl: 12100 });
-  assert.deepStrictEqual(BTW.splits({ bedrag: 10900, tarief: 9, inclBtw: true }), { excl: 10000, btw: 900, incl: 10900 });
-  assert.deepStrictEqual(BTW.splits({ bedrag: 5000, tarief: 0, inclBtw: true }), { excl: 5000, btw: 0, incl: 5000 });
+  assert.deepStrictEqual(BTW.splits({ bedrag: 12100, tarief: 21, inclBtw: true }), { excl: 10000, btw: 2100, incl: 12100, nietAftrekbaar: 0 });
+  assert.deepStrictEqual(BTW.splits({ bedrag: 10000, tarief: 21, inclBtw: false }), { excl: 10000, btw: 2100, incl: 12100, nietAftrekbaar: 0 });
+  assert.deepStrictEqual(BTW.splits({ bedrag: 10900, tarief: 9, inclBtw: true }), { excl: 10000, btw: 900, incl: 10900, nietAftrekbaar: 0 });
+  assert.deepStrictEqual(BTW.splits({ bedrag: 5000, tarief: 0, inclBtw: true }), { excl: 5000, btw: 0, incl: 5000, nietAftrekbaar: 0 });
 });
 
 test('kwartaaloverzicht en saldo', () => {
@@ -46,4 +46,9 @@ test('deadlines', () => {
   assert.strictEqual(iso(BTW.deadline(2026, 1)), '2026-4-30');
   assert.strictEqual(iso(BTW.deadline(2026, 3)), '2026-10-31');
   assert.strictEqual(iso(BTW.deadline(2026, 4)), '2027-1-31');
+});
+
+test('btw-bedrag van de bon en niet-aftrekbare btw', () => {
+  assert.deepStrictEqual(BTW.splits({ soort: 'kost', bedrag: 1000, tarief: 21, inclBtw: true, btwBedrag: 120 }), { excl: 880, btw: 120, incl: 1000, nietAftrekbaar: 0 });
+  assert.deepStrictEqual(BTW.splits({ soort: 'kost', bedrag: 12100, tarief: 21, inclBtw: true, btwAftrekbaar: false }), { excl: 12100, btw: 0, incl: 12100, nietAftrekbaar: 2100 });
 });

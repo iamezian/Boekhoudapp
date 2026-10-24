@@ -1,7 +1,7 @@
 // Bewaart de app op de telefoon zodat hij ook zonder internet werkt.
 // Verhoog VERSIE bij elke wijziging zodat iPhones de nieuwe versie ophalen.
-const VERSIE = 'boekhouding-v1';
-const BESTANDEN = ['./', 'index.html', 'styles.css', 'btw.js', 'app.js', 'manifest.webmanifest', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png'];
+const VERSIE = 'boekhouding-v2';
+const BESTANDEN = ['./', 'index.html', 'styles.css', 'btw.js', 'bonlezer.js', 'ib.js', 'scan.js', 'app.js', 'manifest.webmanifest', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(VERSIE).then((c) => c.addAll(BESTANDEN)).then(() => self.skipWaiting()));
