@@ -97,7 +97,22 @@
       <h2>Jouw situatie</h2>
       <div class="kaart instellingen">
         <label class="schakel"><input type="checkbox" id="urencriterium"><span>Ik werk minstens 1.225 uur per jaar voor mijn bedrijf <small>(urencriterium)</small></span></label>
-        <label class="schakel"><input type="checkbox" id="starter"><span>Ik ben starter <small>(max. 3 keer in de eerste 5 jaar)</small></span></label>
+        <div class="veld">
+          <label for="startjaar">In welk jaar ben je je bedrijf gestart?</label>
+          <input id="startjaar" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" placeholder="bijv. 2024">
+        </div>
+        <div class="veld" id="zonderUrenVeld" hidden>
+          <label for="zonderUren">Jaren sinds je start waarin je níet aan de 1.225 uur kwam</label>
+          <select id="zonderUren">
+            <option value="0">Geen, ik haalde het elk jaar</option>
+            <option value="1">1 jaar</option>
+            <option value="2">2 jaar</option>
+            <option value="3">3 jaar</option>
+            <option value="4">4 jaar</option>
+          </select>
+        </div>
+        <p id="starterUitleg" class="notities" aria-live="polite" hidden></p>
+        <label class="schakel"><input type="checkbox" id="starter"><span id="starterLabel">Startersaftrek toepassen <small>(max. 3 keer in de eerste 5 jaar)</small></span></label>
         <div class="veld">
           <label for="loon">Ander inkomen per jaar, bijv. loon uit loondienst <small>(bruto)</small></label>
           <div class="bedrag-invoer klein"><span aria-hidden="true">€</span><input id="loon" inputmode="decimal" autocomplete="off" placeholder="0"></div>

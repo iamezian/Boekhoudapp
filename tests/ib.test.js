@@ -30,3 +30,20 @@ test('horeca 80% en geen urencriterium', () => {
 test('onbekend jaar gebruikt dichtstbijzijnde tarieven', () => {
   assert.strictEqual(IB.bereken({ jaar: 2027, winst: 0 }).benadering, true);
 });
+
+test('startersaftrek automatisch op basis van startjaar', () => {
+  assert.deepStrictEqual(IB.starterStatus(2026, 2024), { recht: true, jaarNummer: 3, keer: 3 });
+  assert.strictEqual(IB.starterStatus(2024, 2024).keer, 1);
+  assert.strictEqual(IB.starterStatus(2027, 2024).recht, false);
+  // Eén jaar niet aan het urencriterium voldaan: in het 4e jaar nog recht
+  assert.strictEqual(IB.starterStatus(2027, 2024, 1).recht, true);
+  assert.strictEqual(IB.starterStatus(2030, 2024, 3).recht, false);
+  assert.strictEqual(IB.starterStatus(2023, 2024).recht, false);
+  assert.strictEqual(IB.starterStatus(2026, null).recht, false);
+});
+
+test('starter in 2026: zelfstandigenaftrek + startersaftrek', () => {
+  const r = IB.bereken({ jaar: 2026, winst: 5000000, urencriterium: true, starter: true });
+  assert.strictEqual(r.startersaftrek, 212300);
+  assert.strictEqual(r.zelfstandigenaftrek + r.startersaftrek, 332300);
+});

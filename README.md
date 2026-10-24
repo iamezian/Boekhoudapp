@@ -11,7 +11,7 @@ Een eenvoudige app om je inkomsten en kosten bij te houden. Hij berekent meteen 
   - Eten en drinken in de horeca: btw niet aftrekbaar, 80% telt mee voor de inkomstenbelasting
   - Buitenlandse btw: niet aftrekbaar in je Nederlandse aangifte
   - Btw verlegd, bonnen met zowel 9% als 21% btw, en apparatuur boven € 450 (afschrijven)
-- **Belasting**: een schatting van je inkomstenbelasting en de bijdrage Zorgverzekeringswet (Zvw) per jaar, met zelfstandigenaftrek, startersaftrek, mkb-winstvrijstelling, heffingskortingen en eventueel loon uit loondienst. Tarieven 2025 en 2026.
+- **Belasting**: een schatting van je inkomstenbelasting en de bijdrage Zorgverzekeringswet (Zvw) per jaar, met zelfstandigenaftrek, startersaftrek (automatisch bepaald aan de hand van het startjaar van je bedrijf), mkb-winstvrijstelling, heffingskortingen en eventueel loon uit loondienst. Tarieven 2025 en 2026.
 - **Exporteren** naar Excel (CSV) voor je boekhouder, plus back-up en terugzetten
 - Werkt offline, ondersteunt donkere modus, grotere tekst (Dynamic Type) en VoiceOver
 

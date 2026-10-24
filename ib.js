@@ -72,6 +72,17 @@
     return 0;
   }
 
+  // Recht op startersaftrek: in de 5 jaar ervoor hooguit 2 keer zelfstandigenaftrek gehad en minstens 1 jaar geen ondernemer.
+  // Uitgaande van zelfstandigenaftrek in elk jaar sinds de start komt dat neer op de eerste 3 jaar van je bedrijf.
+  // eerderZonderAftrek: aantal jaren sinds de start waarin je níet aan het urencriterium voldeed.
+  function starterStatus(jaar, startjaar, eerderZonderAftrek) {
+    if (!startjaar || startjaar > jaar) return { recht: false, jaarNummer: null, keer: 0 };
+    const jaarNummer = jaar - startjaar + 1;
+    const eerderGebruikt = Math.max(0, jaarNummer - 1 - (eerderZonderAftrek || 0));
+    const recht = jaarNummer <= 5 && eerderGebruikt <= 2;
+    return { recht, jaarNummer, keer: recht ? eerderGebruikt + 1 : 0 };
+  }
+
   // invoer: { jaar, winst (centen, omzet − kosten excl. btw), horecaKosten (centen), urencriterium, starter,
   //          loon (centen, ander inkomen uit loondienst), ingehoudenLoonheffing (centen) }
   function bereken(invoer) {
@@ -125,7 +136,7 @@
     };
   }
 
-  const api = { bereken, PARAMETERS, parametersVoor };
+  const api = { bereken, starterStatus, PARAMETERS, parametersVoor };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.IB = api;
 })(this);

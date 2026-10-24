@@ -29,7 +29,8 @@
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
 
   const state = laad();
-  state.instellingen = Object.assign({ urencriterium: true, starter: false, loon: 0, ingehouden: 0 }, state.instellingen);
+  state.instellingen = Object.assign({ urencriterium: true, startjaar: null, zonderUren: 0, starterPerJaar: {}, loon: 0, ingehouden: 0 }, state.instellingen);
+  delete state.instellingen.starter; // vervangen door startjaar
   const vandaag = new Date();
   const ui = {
     view: 'overzicht',
@@ -100,15 +101,22 @@
   function renderBelasting() {
     const inst = state.instellingen;
     $('urencriterium').checked = inst.urencriterium;
-    $('starter').checked = inst.starter;
+    if (document.activeElement !== $('startjaar')) $('startjaar').value = inst.startjaar || '';
+    $('zonderUren').value = String(inst.zonderUren || 0);
+    const starter = starterVoorJaar(ui.jaar);
+    $('starter').checked = starter.toepassen;
     $('starter').disabled = !inst.urencriterium;
+    $('starterLabel').firstChild.textContent = `Startersaftrek toepassen in ${ui.jaar} `;
+    $('zonderUrenVeld').hidden = !(starter.status.jaarNummer >= 2);
+    $('starterUitleg').hidden = !starter.uitleg;
+    $('starterUitleg').textContent = starter.uitleg;
     if (document.activeElement !== $('loon')) $('loon').value = centenNaarInvoer(inst.loon);
     if (document.activeElement !== $('ingehouden')) $('ingehouden').value = centenNaarInvoer(inst.ingehouden);
 
     const o = BTW.overzicht(boekingenVanJaar(ui.jaar));
     const r = IB.bereken({
       jaar: ui.jaar, winst: o.winst, horecaKosten: o.kosten.horeca,
-      urencriterium: inst.urencriterium, starter: inst.starter && inst.urencriterium,
+      urencriterium: inst.urencriterium, starter: starter.toepassen,
       loon: inst.loon, ingehoudenLoonheffing: inst.ingehouden,
     });
 
@@ -147,7 +155,40 @@
   }
 
   $('urencriterium').addEventListener('change', (e) => { state.instellingen.urencriterium = e.target.checked; bewaar(); renderBelasting(); });
-  $('starter').addEventListener('change', (e) => { state.instellingen.starter = e.target.checked; bewaar(); renderBelasting(); });
+  // Bepaalt of de startersaftrek geldt in een jaar: automatisch op basis van het startjaar, tenzij je het zelf hebt aangepast
+  function starterVoorJaar(jaar) {
+    const inst = state.instellingen;
+    const status = IB.starterStatus(jaar, inst.startjaar, inst.zonderUren);
+    const handmatig = inst.starterPerJaar[jaar];
+    const toepassen = inst.urencriterium && (handmatig != null ? handmatig : status.recht);
+    const bedrag = fmt(IB.parametersVoor(jaar).p.startersaftrek * 100);
+    let uitleg = '';
+    if (!inst.startjaar) uitleg = '';
+    else if (!status.jaarNummer) uitleg = `In ${jaar} was je bedrijf nog niet gestart.`;
+    else if (!inst.urencriterium) uitleg = `${jaar} is je ${status.jaarNummer}e jaar als ondernemer, maar zonder urencriterium krijg je geen startersaftrek.`;
+    else if (status.recht) uitleg = `${jaar} is je ${status.jaarNummer}e jaar als ondernemer: je hebt recht op startersaftrek (${bedrag}). Dit is de ${status.keer}e keer${status.keer === 3 ? ' en de laatste keer' : ''}.`;
+    else if (status.jaarNummer <= 5) uitleg = `${jaar} is je ${status.jaarNummer}e jaar als ondernemer. Je hebt de startersaftrek al 3 keer gehad, dus in ${jaar} geen recht meer.`;
+    else uitleg = `Je bedrijf bestaat in ${jaar} langer dan 5 jaar: geen startersaftrek meer.`;
+    if (inst.startjaar && handmatig != null && handmatig !== status.recht) uitleg += ' Je hebt dit zelf aangepast.';
+    return { status, toepassen, uitleg };
+  }
+
+  $('starter').addEventListener('change', (e) => {
+    const inst = state.instellingen;
+    const auto = IB.starterStatus(ui.jaar, inst.startjaar, inst.zonderUren).recht;
+    // Alleen onthouden als het afwijkt van wat de app zelf berekent
+    if (e.target.checked === auto) delete inst.starterPerJaar[ui.jaar];
+    else inst.starterPerJaar[ui.jaar] = e.target.checked;
+    bewaar();
+    renderBelasting();
+  });
+  $('startjaar').addEventListener('input', (e) => {
+    const j = parseInt(e.target.value, 10);
+    state.instellingen.startjaar = j >= 1950 && j <= 2100 ? j : null;
+    bewaar();
+    renderBelasting();
+  });
+  $('zonderUren').addEventListener('change', (e) => { state.instellingen.zonderUren = Number(e.target.value); bewaar(); renderBelasting(); });
   [['loon', 'loon'], ['ingehouden', 'ingehouden']].forEach(([id, sleutel]) => {
     $(id).addEventListener('input', (e) => {
       const c = BTW.parseBedrag(e.target.value);
