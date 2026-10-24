@@ -225,12 +225,34 @@
     return leesRijen(String(tekst || '').split(/\r?\n/).map((r) => ({ tekst: r })), tekst);
   }
 
+  // ---------- Transactiebewijs ----------
+  // Eén betaling per PDF, zoals je die uit de app van Knab, ING, Rabobank of bunq deelt:
+  //   "Belastingdienst  -€75,00 / Datum 27 jul 2026 / Type Periodieke incasso / Omschrijving ..."
+  function leesTransactieBewijs(tekst) {
+    const t = String(tekst || '');
+    if (!/(^|\n)\s*(datum|date|transactiedatum|boekdatum)\b/i.test(t) || !/(rekeningnummer|rekeningnaam|iban|incassant|tegenrekening|type)/i.test(t)) return null;
+    const kop = t.match(/^\s*(.+?)\s+([-+−])\s*€\s*(\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2})\s*$/m) ||
+      t.match(/^\s*(.+?)\s+€\s*([-+−])\s*(\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2})\s*$/m);
+    if (!kop) return null;
+    const datumRegel = t.match(/(?:^|\n)\s*(?:datum|date|transactiedatum|boekdatum)\s*:?\s*(.+)/i);
+    const datum = datumRegel ? datumUit(datumRegel[1]) : null;
+    if (!datum) return null;
+    const bedrag = bedragUit(kop[3]) * (kop[2] === '+' ? 1 : -1);
+    // Omschrijving: de regels na "Omschrijving" tot het volgende kopje
+    let omschrijving = '';
+    const m = t.match(/(?:^|\n)\s*(?:omschrijving|mededeling|description)\s*:?\s*([\s\S]*?)(?=\n\s*(?:naam|rekeningnummer|rekeningnaam|iban|type|kenmerk|datum)\b|$)/i);
+    if (m) omschrijving = m[1].replace(/\s+/g, ' ').replace(/-\s(?=\d)/g, '-').trim();
+    const type = (t.match(/(?:^|\n)\s*type\s*:?\s*(.+)/i) || [])[1] || '';
+    return { datum, bedrag, naam: kop[1].replace(/\s+/g, ' ').trim(), omschrijving: (omschrijving + ' ' + type).trim(), tegenrekening: '' };
+  }
+
   // ---------- Transactie → boeking ----------
   const BELASTINGDIENST = /belastingdienst/i;
   const EIGEN_REKENING = /spaarrekening|eigen rekening|naar spaar|van spaar|oranje spaar|spaardeposito|overboeking eigen|privérekening|prive rekening|bunq savings/i;
   const GELDAUTOMAAT = /geldautomaat|geldopname|\bgea\b|atm|cash withdrawal/i;
 
-  function naarBoeking(t) {
+  // hint: { categorie } uit de map in de ZIP, bijv. "Sponsoring"
+  function naarBoeking(t, hint) {
     const tekst = `${t.naam} ${t.omschrijving}`;
     const notities = [];
     const b = {
@@ -242,7 +264,7 @@
       btwBedrag: null,
       btwAftrekbaar: true,
       categorie: null,
-      omschrijving: (t.naam || t.omschrijving || 'Banktransactie').slice(0, 60),
+      omschrijving: (BonLezer.vindMerk([t.naam || '']) || t.naam || t.omschrijving || 'Banktransactie').slice(0, 60),
       notities,
       zeker: t.zeker !== false,
       bank: true,
@@ -250,8 +272,16 @@
     let meenemen = true;
 
     if (b.soort === 'kost') {
-      const cat = BonLezer.categoriseer(tekst);
+      let cat = BonLezer.categoriseer(tekst);
+      // Map in de ZIP bepaalt de soort, behalve als de betaling zelf duidelijk iets anders is (MRB, verzekering)
+      if (hint && hint.categorie && !cat.mrb && !['verzekering', 'belastingen'].includes(cat.categorie)) {
+        cat = Object.assign(BonLezer.categoriseer(hint.categorie === 'auto' ? 'garage' : hint.categorie), { categorie: hint.categorie });
+      }
       b.categorie = cat.categorie;
+      if (cat.mrb) {
+        const kenteken = (tekst.match(/[A-Z0-9]{1,3}-[A-Z0-9]{1,3}-[A-Z0-9]{1,3}/) || [])[0];
+        b.omschrijving = 'Motorrijtuigenbelasting' + (kenteken ? ' ' + kenteken : '');
+      }
       if (cat.aftrekbaar === false) b.btwAftrekbaar = false;
       if (BELASTINGDIENST.test(tekst) && cat.categorie !== 'belastingen') {
         meenemen = false;
@@ -262,6 +292,8 @@
       } else if (GELDAUTOMAAT.test(tekst)) {
         meenemen = false;
         notities.push('Geld opnemen is geen kost. Lees liever de bonnen in van wat je ermee betaald hebt.');
+      } else if (cat.prive) {
+        meenemen = false;
       } else if (cat.brandstof) {
         b.tarief = 21;
         notities.push('Tanken: gerekend met 21% btw (brandstof heeft in Nederland altijd 21%). Bewaar de tankbon.');
@@ -280,7 +312,7 @@
     return { boeking: b, meenemen };
   }
 
-  const api = { leesCsv, leesRijen, leesTekst, isAfschrift, naarBoeking, bedragUit, datumUit };
+  const api = { leesCsv, leesRijen, leesTekst, leesTransactieBewijs, isAfschrift, naarBoeking, bedragUit, datumUit };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.BankLezer = api;
 })(this);

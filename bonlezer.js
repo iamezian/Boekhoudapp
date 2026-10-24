@@ -44,11 +44,18 @@
   // Brandstof: in Nederland altijd 21% btw
   const BRANDSTOF = woorden(['tankstation', 'benzine', 'euro ?95', 'euro ?98', 'e10', 'diesel', 'lpg', 'adblue', 'brandstof', 'tanken',
     'shell', 'esso', 'bp', 'tinq', 'tango', 'total ?energies', 'texaco', 'avia', 'gulf', 'q8', 'argos', 'firezone', 'lukoil',
-    'ultimate', 'v-power', 'pomp', 'liter', 'ltr', 'laadpaal', 'kwh', 'fastned', 'allego', 'ionity']);
+    'ultimate ?(95|98|diesel)', 'v-power', 'pomp', 'liter', 'ltr', 'laadpaal', 'kwh', 'fastned', 'allego', 'ionity']);
   const AUTO = woorden(['parkeren', 'parking', 'q-park', 'parkmobile', 'yellowbrick', 'easypark', 'garage', 'apk', 'wasstraat',
     'autowas', 'banden', 'anwb', 'kenteken', 'onderhoud auto', 'leaseauto', 'lease']);
-  const MRB = /motorrijtuigen\s*belasting|(^|[^a-z])mrb([^a-z]|$)/i;
-  const VERZEKERING = woorden(['verzekering', 'verzekeringen', 'polis', 'premie', 'assurantie', 'insurance']);
+  const MRB = /motorrijtuigen\s*belasting|wegenbelasting|(^|[^a-z])mrb([^a-z]|$)/i;
+  const VERZEKERING = woorden(['verzekering', 'verzekeringen', 'verzekeraar', 'vers\\.', 'polis', 'polisnummer', 'premie', 'assurantie',
+    'insurance', 'allianz', 'centraal beheer', 'interpolis', 'nationale[- ]nederlanden', 'aegon', 'a\\.s\\.r\\.?', 'asr', 'ohra',
+    'fbto', 'univé', 'unive', 'inshared', 'achmea', 'reaal', 'unigarant', 'klaverblad', 'movir', 'hiscox', 'de goudse', 'anwb verzekeren',
+    'autoverzekering', 'aansprakelijkheid', 'arbeidsongeschiktheid', 'aov']);
+  // Zorgverzekering is privé, ook voor ondernemers
+  const ZORG = woorden(['zorgverzekering', 'zilveren kruis', 'cz', 'vgz', 'menzis', 'dsw', 'zorg en zekerheid', 'ditzo', 'zekur', 'basisverzekering']);
+  // Nederlands kenteken, zoals XY-123-Z, 12-ABC-3 of AB-12-CD: drie groepen met letters én cijfers
+  const KENTEKEN = /(^|[^a-z0-9-])(?=[a-z0-9-]{8}(?![a-z0-9]))(?=[a-z0-9-]*[a-z])(?=[a-z0-9-]*\d)([a-z]{1,3}|\d{1,3})-([a-z]{1,3}|\d{1,3})-([a-z]{1,3}|\d{1,3})(?![a-z0-9])/i;
   const BANKKOSTEN = woorden(['bankkosten', 'kosten betalingsverkeer', 'betaalpakket', 'pakketkosten', 'kosten zakelijk', 'rente', 'transactiekosten']);
   const SPONSOR = woorden(['sponsor[a-z]*', 'shirtsponsor[a-z]*', 'bordsponsor[a-z]*', 'reclame', 'advertentie']);
   const HORECA = woorden(['restaurant', 'café', 'cafe', 'lunchroom', 'lunch', 'diner', 'bistro', 'brasserie', 'eetcafé',
@@ -163,7 +170,8 @@
   // Bepaalt de categorie en of er btw op hoort te zitten. Ook gebruikt voor regels van bankafschriften.
   function categoriseer(tekst) {
     const t = String(tekst || '').toLowerCase();
-    if (MRB.test(t)) return { categorie: 'belastingen', geenBtw: true,
+    // De Belastingdienst noemt bij een incasso vaak alleen je kenteken en de periode
+    if (MRB.test(t) || /belastingdienst/.test(t) && KENTEKEN.test(t)) return { categorie: 'belastingen', geenBtw: true, mrb: true,
       notitie: 'Motorrijtuigenbelasting: aftrekbaar als kosten als de auto zakelijk is (op de balans van je bedrijf). Er zit geen btw op.' };
     if (VLUCHT.test(t)) return { categorie: 'reizen', aftrekbaar: false, geenBtw: true,
       notitie: 'Vliegticket: zakelijk aftrekbaar als kosten, maar de btw is niet verrekenbaar (internationale vluchten hebben 0% btw).' };
@@ -171,8 +179,10 @@
       notitie: 'Sponsoring: aftrekbaar als kosten als je er reclame of naamsbekendheid voor terugkrijgt. Btw op de factuur is aftrekbaar.' };
     if (HORECA.test(t)) return { categorie: 'horeca', aftrekbaar: false,
       notitie: 'Eten en drinken in de horeca: btw is niet aftrekbaar. Voor de inkomstenbelasting telt 80% van de kosten.' };
+    if (ZORG.test(t)) return { categorie: 'verzekering', geenBtw: true, prive: true,
+      notitie: 'Zorgverzekering is privé, ook als ondernemer: geen bedrijfskosten.' };
     if (VERZEKERING.test(t)) return { categorie: 'verzekering', geenBtw: true,
-      notitie: 'Verzekeringen: geen btw (wel assurantiebelasting, die hoort bij de kosten).' };
+      notitie: 'Verzekering: zakelijk aftrekbaar (bijv. autoverzekering van een zakelijke auto, aansprakelijkheid, AOV is wel privé). Er zit geen btw op.' };
     if (BANKKOSTEN.test(t)) return { categorie: 'bank', geenBtw: true, notitie: 'Bankkosten: geen btw.' };
     if (BRANDSTOF.test(t)) return { categorie: 'auto', brandstof: true,
       notitie: 'Brandstof voor je zakelijke auto: btw is aftrekbaar. Let op: aan het eind van het jaar corrigeer je de btw voor privégebruik.' };
@@ -186,17 +196,26 @@
   }
 
   // Een typisch woord per categorie, om de btw-regels van een map toe te passen
-  const MAP_VOORBEELD = { auto: 'brandstof', sponsoring: 'sponsoring', horeca: 'restaurant', reizen: 'trein' };
+  const MAP_VOORBEELD = { sponsoring: 'sponsoring', horeca: 'restaurant', reizen: 'trein', verzekering: 'verzekering' };
 
   // Map in een ZIP-bestand als hint: "Inkomsten/factuur.pdf" is omzet, "Sponsoring/..." is sponsoring
   function hintUitPad(pad) {
     const delen = String(pad || '').toLowerCase().split('/').slice(0, -1).join('/');
     if (!delen) return null;
+    const hint = mapSoort(delen);
+    // "Facturen Q3 2026": dan horen de datums in dat kwartaal te vallen
+    const k = delen.match(/q\s?([1-4])\D{0,3}(20\d{2})|(20\d{2})\D{0,3}q\s?([1-4])/);
+    if (k) return Object.assign(hint || {}, { kwartaal: +(k[1] || k[4]), jaar: +(k[2] || k[3]) });
+    return hint;
+  }
+
+  function mapSoort(delen) {
     if (/inkomst|omzet|verkoop|opbrengst|income|sales|verstuurd|uitgaande factu/.test(delen)) return { soort: 'inkomst' };
     if (/bank|afschrift|rekeningoverzicht/.test(delen)) return { soort: 'kost', bank: true };
     if (/sponsor/.test(delen)) return { soort: 'kost', categorie: 'sponsoring' };
     if (/tank|brandstof|benzine|diesel|auto/.test(delen)) return { soort: 'kost', categorie: 'auto' };
-    if (/horeca|restaurant|lunch|eten/.test(delen)) return { soort: 'kost', categorie: 'horeca' };
+    if (/horeca|restaurant|lunch|eten|presentatie|representatie|relatiegeschenk/.test(delen)) return { soort: 'kost', categorie: 'horeca' };
+    if (/verzeker/.test(delen) && !/belasting|kosten/.test(delen)) return { soort: 'kost', categorie: 'verzekering' };
     if (/reis|vlucht|ticket/.test(delen)) return { soort: 'kost', categorie: 'reizen' };
     if (/kost|uitgave|inkoop|bonnen|bon/.test(delen)) return { soort: 'kost' };
     return null;
@@ -225,18 +244,25 @@
       zeker: true,
     };
 
-    // Totaalbedrag
+    // Totaalbedrag: "Totaal incl. btw" of "Te betalen" gaat voor op een los "Totaal", en dat weer op "Bedrag" of "PIN".
+    // Regels over krediet, saldo of restbedragen (bijv. toestelkrediet op een telefoonfactuur) tellen niet mee.
     const totalen = [];
     regels.forEach((regel, i) => {
       if (!TOTAAL.test(regel) || BTW_WOORD.test(regel) && !/incl/i.test(regel)) return;
+      if (/resterend|restant|krediet|saldo|openstaand|limiet|vorige factuur|termijn/i.test(regel)) return;
       let bedragen = vindBedragen(regel);
       if (!bedragen.length && regels[i + 1]) bedragen = vindBedragen(regels[i + 1]);
-      const sub = SUBTOTAAL.test(regel) && !/incl/i.test(regel);
-      bedragen.forEach((b) => b.centen > 0 && totalen.push({ centen: b.centen, sub }));
+      const sub = /sub\s*-?\s*tota/i.test(regel) || SUBTOTAAL.test(regel) && !/incl/i.test(regel);
+      const rang = /(totaal|total).{0,25}incl|te betalen|totaalbedrag|amount due|grand total|to pay/i.test(regel) ? 3
+        : /(^|[^a-z])(totaal|total)([^a-z]|$)/i.test(regel) ? 2 : 1;
+      bedragen.forEach((b) => b.centen > 0 && totalen.push({ centen: b.centen, sub, rang }));
     });
     const alle = regels.flatMap(vindBedragen).filter((b) => b.centen > 0);
     const echteTotalen = totalen.filter((t) => !t.sub);
-    if (echteTotalen.length) r.bedrag = Math.max(...echteTotalen.map((t) => t.centen));
+    if (echteTotalen.length) {
+      const besteRang = Math.max(...echteTotalen.map((t) => t.rang));
+      r.bedrag = Math.max(...echteTotalen.filter((t) => t.rang === besteRang).map((t) => t.centen));
+    }
     else if (alle.length) {
       r.bedrag = Math.max(...alle.map((b) => b.centen));
       r.zeker = false;
@@ -297,10 +323,16 @@
     let cat = { categorie: null };
     if (r.soort === 'kost') {
       cat = categoriseer(plat);
-      if (hint.categorie && hint.categorie !== cat.categorie) {
+      if (hint.categorie === 'auto' && cat.categorie === 'auto') {
+        // Map "auto": de inhoud zegt al of het brandstof is of bijv. onderhoud
+      } else if (hint.categorie === 'auto') {
+        // Onderhoud, onderdelen, wasstraat: wel auto, maar geen tankbon
+        cat = Object.assign(BRANDSTOF.test(plat) ? categoriseer('brandstof') : categoriseer('garage'), { categorie: 'auto' });
+      } else if (hint.categorie && hint.categorie !== cat.categorie && !cat.mrb) {
         // De map bepaalt de soort kosten, met de btw-regels die daarbij horen
         cat = Object.assign(categoriseer(MAP_VOORBEELD[hint.categorie] || ''), { categorie: hint.categorie });
       }
+      if (cat.prive) r.prive = true;
       r.categorie = cat.categorie;
       if (cat.aftrekbaar === false) r.btwAftrekbaar = false;
     }
@@ -319,7 +351,7 @@
         notities.push(r.soort === 'inkomst'
           ? 'Geen btw op de factuur gevonden: gerekend zonder btw. Controleer de factuur.'
           : btwGenoemd
-            ? 'Btw genoemd maar niet als bedrag gevonden: gerekend zonder btw. Controleer de bon.'
+            ? (r.zeker = false, 'Btw genoemd maar niet als bedrag gevonden: gerekend zonder btw. Controleer de bon.')
             : 'Geen btw op de bon gevonden: telt wel als kosten, maar zonder btw-teruggave.');
       }
     }
@@ -335,19 +367,82 @@
       if (excl >= 45000) notities.push('Boven € 450 excl. btw: voor de inkomstenbelasting moet je dit waarschijnlijk afschrijven over een paar jaar.');
     }
 
+    // Onwaarschijnlijke uitkomsten (vaak een leesfout op een foto) als twijfelgeval tonen
+    if (cat.brandstof && r.bedrag > 30000) {
+      r.zeker = false;
+      notities.unshift('Ongewoon hoog bedrag voor een tankbon: controleer het bedrag.');
+    }
+    const jaarNu = vandaag ? +vandaag.slice(0, 4) : new Date().getFullYear();
+    if (r.datum && (+r.datum.slice(0, 4) < jaarNu - 2 || +r.datum.slice(0, 4) > jaarNu + 1)) {
+      r.zeker = false;
+      notities.unshift('Het jaartal lijkt niet te kloppen: controleer de datum.');
+    }
     if (!r.bedrag) { r.zeker = false; notities.unshift('Bedrag niet gevonden: vul het zelf in.'); }
     if (!r.datum) { r.zeker = false; notities.unshift('Datum niet gevonden: controleer de datum.'); }
 
-    r.omschrijving = r.soort === 'inkomst' ? omschrijvingFactuur(regels, bestandsnaam) : kiesOmschrijving(regels, bestandsnaam);
+    const negeer = (opties && opties.eigenNamen) || null;
+    r.omschrijving = r.soort === 'inkomst' ? omschrijvingFactuur(regels, bestandsnaam) : kiesOmschrijving(regels, bestandsnaam, negeer);
     return r;
   }
 
-  function kiesOmschrijving(regels, bestandsnaam) {
-    // Meestal staat de naam van de winkel of het bedrijf bovenaan
+  // Bekende leveranciers, zodat de omschrijving "KPN" wordt en niet je eigen adres of een kopje van de factuur
+  const MERKEN = [
+    ['kpn', 'KPN'], ['odido', 'Odido'], ['vodafone', 'Vodafone'], ['ziggo', 'Ziggo'], ['t-mobile', 'T-Mobile'], ['simyo', 'Simyo'],
+    ['shell', 'Shell'], ['esso', 'Esso'], ['tinq', 'TinQ'], ['tango', 'Tango'], ['bp', 'BP'], ['total ?energies', 'TotalEnergies'],
+    ['texaco', 'Texaco'], ['avia', 'Avia'], ['gulf', 'Gulf'], ['argos', 'Argos'], ['easypark', 'EasyPark'], ['q-park', 'Q-Park'],
+    ['parkmobile', 'Parkmobile'], ['yellowbrick', 'Yellowbrick'], ['allianz', 'Allianz Direct'], ['centraal beheer', 'Centraal Beheer'],
+    ['apple', 'Apple'], ['google', 'Google'], ['microsoft', 'Microsoft'], ['openai', 'OpenAI'], ['chatgpt', 'ChatGPT'], ['adobe', 'Adobe'],
+    ['aliexpress', 'AliExpress'], ['amazon', 'Amazon'], ['bol\\.com', 'bol.com'], ['coolblue', 'Coolblue'], ['mediamarkt', 'MediaMarkt'],
+    ['decathlon', 'Decathlon'], ['ikea', 'IKEA'], ['action', 'Action'], ['hema', 'HEMA'], ['albert heijn', 'Albert Heijn'], ['jumbo', 'Jumbo'],
+    ['marktplaats', 'Marktplaats'], ['travix', 'Travix'], ['budgetair', 'Budgetair'], ['booking\\.com', 'Booking.com'], ['klm', 'KLM'],
+    ['transavia', 'Transavia'], ['ryanair', 'Ryanair'], ['easyjet', 'easyJet'], ['ns', 'NS'], ['uber', 'Uber'], ['bolt', 'Bolt'],
+    ['anwb', 'ANWB'], ['postnl', 'PostNL'], ['belastingdienst', 'Belastingdienst'],
+  ].map(([w, naam]) => [new RegExp('(^|[^a-z])' + w + '([^a-z]|$)', 'i'), naam]);
+
+  function vindMerk(regels) {
+    let beste = null;
+    MERKEN.forEach(([re, naam]) => {
+      const i = regels.findIndex((r) => re.test(r));
+      if (i >= 0 && (!beste || i < beste.i)) beste = { i, naam };
+    });
+    if (beste) return beste.naam;
+    // Anders een bedrijfsnaam met B.V., N.V., GmbH, Ltd enz.
+    for (const r of regels.slice(0, 20)) {
+      const m = r.match(/([A-Z][\w&'.-]*(?:\s[A-Z][\w&'.-]*){0,3}\s(?:B\.?V\.?|N\.?V\.?|GmbH|Ltd\.?|Inc\.?|SARL|S\.A\.))(?![a-z])/);
+      if (m) return m[1];
+    }
+    return null;
+  }
+
+  // Een bestandsnaam als "Tankbon 10" of "Sponsoring voor DEM U21" zegt vaak meer dan de bon zelf
+  function beschrijvendeNaam(bestandsnaam) {
+    if (!bestandsnaam) return null;
+    const n = bestandsnaam.replace(/\.[a-z0-9]+$/i, '').replace(/[_]+/g, ' ').replace(/\s+/g, ' ').trim();
+    if (/^(img|image|pdf-document|document|scan|screenshot|schermafbeelding|foto|photo|file|bestand)\b/i.test(n)) return null;
+    if (/^[0-9a-f]{12,}$/i.test(n) || !/\p{L}{4,}/u.test(n)) return null;
+    if (/^\d{1,2}\s\p{L}+\s\d{4}/u.test(n)) return null; // "16 okt 2026, 17:21"
+    if (/^(factuur|invoice|bon|kassabon|receipt|nota|rekening)(\s[\w.-]*)?$/i.test(n) || /factuur\s\d{6,}/i.test(n)) return null;
+    return n.slice(0, 50);
+  }
+
+  const ADRES = /\d{4}\s?[A-Z]{2}(\s|$)|^\p{L}[\p{L} .'-]+\s\d+\s?[A-Za-z]?(\s|$)|@|www\.|https?:|postbus/iu;
+
+  // negeer: Set met regels (kleine letters) die je eigen naam of adres zijn
+  function kiesOmschrijving(regels, bestandsnaam, negeer) {
+    const merk = vindMerk(regels);
+    const naam = beschrijvendeNaam(bestandsnaam);
+    if (merk && naam) return (naam.toLowerCase().includes(merk.toLowerCase()) ? naam : `${merk} – ${naam}`).slice(0, 60);
+    if (merk || naam) return merk || naam;
+    // Meestal staat de naam van de winkel of het bedrijf bovenaan; adressen en de geadresseerde slaan we over
+    const geadresseerd = new Set();
+    regels.forEach((r, i) => { if (/^(aan|t\.?a\.?v\.?)(?![a-z])/i.test(r)) [r.replace(/^\S+\s*/, ''), regels[i + 1], regels[i + 2]].forEach((x) => x && geadresseerd.add(x.trim())); });
     for (const regel of regels.slice(0, 8)) {
+      if (ADRES.test(regel) || geadresseerd.has(regel) || negeer && negeer.has(regel.toLowerCase())) continue;
+      if (/^(de heer|mevrouw|dhr\.?|mevr\.?|nederland|the netherlands|belgi|#|omschrijving|aantal)/i.test(regel)) continue;
       const schoon = regel.replace(/[^\p{L}\d&'. -]/gu, '').trim();
       const letters = (schoon.match(/\p{L}/gu) || []).length;
-      if (letters >= 3 && letters / schoon.length > 0.6 && !/^(factuur|invoice|bon|kassabon|receipt|datum|date|btw|pagina)\b/i.test(schoon)) {
+      if (letters >= 3 && letters / schoon.length > 0.6 && /\p{L}{4,}/u.test(schoon) &&
+        !/^(factuur|invoice|bon|kassabon|receipt|datum|date|btw|pagina|aan|je factuur|bestelling|betaling|kopie|vragen|klant)/i.test(schoon)) {
         return schoon.slice(0, 60);
       }
     }
@@ -361,14 +456,19 @@
     const nr = plat.match(/(?:factuur|invoice)\s*(?:nummer|nr\.?|no\.?|number|#)\s*[:#]?\s*([A-Z0-9][A-Z0-9\-/.]{1,20})/i);
     let klant = null;
     for (let i = 0; i < regels.length && !klant; i++) {
-      const m = regels[i].match(/^(?:factuur aan|aan|klant|debiteur|t\.?a\.?v\.?|bill to|to)\s*:?\s*(.*)$/i);
+      const m = regels[i].match(/^(?:factuur aan|aan|klant|debiteur|t\.?a\.?v\.?|bill to|to)(?![a-z])\s*:?\s*(.*)$/i);
       if (m) klant = (m[1] && m[1].length > 2 ? m[1] : regels[i + 1] || '').trim();
+    }
+    // Self-billing ("factuur uitgereikt door afnemer"): de klant is het bedrijf met B.V. in de kop
+    if (!klant || /factuur uitgereikt door afnemer|self.?billing/i.test(plat)) {
+      const bv = plat.match(/([A-Z][\w&'.-]*(?:\s[A-Z][\w&'.-]*){0,3}\s?B\.?V\.?)(?![a-z])/);
+      if (bv) klant = bv[1];
     }
     const delen = [nr ? 'Factuur ' + nr[1] : null, klant].filter(Boolean);
     return delen.length ? delen.join(' – ').slice(0, 60) : kiesOmschrijving(regels, bestandsnaam);
   }
 
-  const api = { lees, vindDatums, vindBedragen, categoriseer, hintUitPad, CATEGORIEEN };
+  const api = { lees, vindDatums, vindBedragen, categoriseer, hintUitPad, vindMerk, CATEGORIEEN };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.BonLezer = api;
 })(this);

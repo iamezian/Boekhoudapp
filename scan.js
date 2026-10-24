@@ -214,19 +214,49 @@
     }
   }
 
-  // Zet de tekstlaag van een PDF-pagina om naar rijen met posities (voor kolommen op bankafschriften)
+  // Zet de tekstlaag van een PDF-pagina om naar rijen met posities (voor kolommen op bankafschriften).
+  // Stukjes tekst op (bijna) dezelfde hoogte vormen één rij; tussen stukjes die tegen elkaar aan staan komt geen spatie,
+  // anders krijg je "T otaalbedr ag" of een bedrag dat over twee regels valt ("€ 75," en "00").
   function rijenUitTekstlaag(items) {
+    const stukken = items
+      .filter((it) => it.str && it.str.trim())
+      .map((it) => ({ x: it.transform[4], y: it.transform[5], b: it.width || 0, h: Math.abs(it.height || it.transform[3] || 10), s: it.str }));
     const rijen = [];
-    items.forEach((it) => {
-      if (!it.str || !it.str.trim()) return;
-      const y = it.transform[5], x = it.transform[4];
-      let rij = rijen.find((r) => Math.abs(r.y - y) < 3);
-      if (!rij) { rij = { y, delen: [] }; rijen.push(rij); }
-      rij.delen.push({ x, s: it.str });
+    stukken.forEach((st) => {
+      let rij = rijen.find((r) => Math.abs(r.y - st.y) <= Math.max(2, Math.min(r.h, st.h) * 0.5));
+      if (!rij) { rij = { y: st.y, h: st.h, stukken: [] }; rijen.push(rij); }
+      rij.stukken.push(st);
     });
     rijen.sort((a, b) => b.y - a.y);
-    rijen.forEach((r) => r.delen.sort((a, b) => a.x - b.x));
-    return rijen;
+    // Kleine, iets hoger geplaatste tekst (centen in superscript, zoals "€75,⁰⁰") hoort bij de regel eronder
+    for (let i = rijen.length - 2; i >= 0; i--) {
+      const klein = rijen[i], onder = rijen[i + 1];
+      const hKlein = Math.max(...klein.stukken.map((st) => st.h));
+      if (hKlein < onder.h * 0.85 && klein.y - onder.y < onder.h) {
+        onder.stukken.push(...klein.stukken);
+        rijen.splice(i, 1);
+      }
+    }
+    return rijen.map((r) => {
+      r.stukken.sort((a, b) => a.x - b.x);
+      // Aan elkaar plakken tot "delen" (woorden/kolommen) met hun x-positie
+      const delen = [];
+      let huidig = null, eind = 0;
+      r.stukken.forEach((st) => {
+        const gat = st.x - eind;
+        if (huidig && gat < st.h * 0.25) {
+          huidig.s += st.s;
+        } else if (huidig && gat < st.h * 1.5) {
+          huidig.s += ' ' + st.s;
+        } else {
+          huidig = { x: st.x, s: st.s };
+          delen.push(huidig);
+        }
+        eind = st.x + st.b;
+      });
+      delen.forEach((d) => { d.s = d.s.replace(/\s+/g, ' ').trim(); });
+      return { y: r.y, delen };
+    });
   }
 
   async function leesPdf(run, item, blob, voortgang) {
@@ -258,7 +288,7 @@
       const pagina = await doc.getPage(i);
       const inhoud = await pagina.getTextContent();
       const rijen = rijenUitTekstlaag(inhoud.items);
-      let paginaTekst = rijen.map((r) => r.delen.map((d) => d.s).join(' ')).join('\n');
+      let paginaTekst = rijen.map((r) => r.delen.map((d) => d.s).join('  ')).join('\n');
       if (i > 4 && !window.BankLezer.isAfschrift(tekst, item.pad)) break;
       alleRijen.push(...rijen);
       if (i === 1) {
@@ -296,15 +326,49 @@
   }
 
   // Zet transacties van een bankafschrift om naar losse resultaten
-  function bankResultaten(item, transacties) {
+  function bankResultaten(item, transacties, hint) {
     return transacties.map((t, i) => {
-      const { boeking, meenemen } = window.BankLezer.naarBoeking(t);
+      const { boeking, meenemen } = window.BankLezer.naarBoeking(t, hint);
       return { naam: item.naam, pad: item.pad, bank: true, sleutel: item.pad + '#' + i, boeking, meenemen };
     });
   }
 
   // Leest alle bestanden en geeft per bon het resultaat van de BonLezer terug.
   // voortgang(tekst, klaar, totaal) houdt het scherm op de hoogte.
+  // Controles over alle bestanden samen:
+  // - een regel die in veel documenten staat (je eigen bedrijfsnaam of adres) is nooit de leverancier
+  // - datums buiten het kwartaal uit de mapnaam ("Facturen Q3 2026") zijn verdacht
+  function naverwerk(resultaten) {
+    const metTekst = resultaten.filter((r) => r.tekst && r.boeking);
+    if (metTekst.length >= 3) {
+      const telling = new Map();
+      metTekst.forEach((r) => {
+        // Per kolom ("Aan  Mijn Bedrijf" → "mijn bedrijf"), zonder labels als Aan/Naam/Contractant
+        new Set(r.tekst.split(/\n|\s{2,}/)
+          .map((l) => l.replace(/\s+/g, ' ').trim().toLowerCase().replace(/^(aan|naam|contractant|klant|t\.?a\.?v\.?)\s*:?\s+/, ''))
+          .filter((l) => l.length >= 4 && l.length <= 40 && /\p{L}{3,}/u.test(l)))
+          .forEach((l) => telling.set(l, (telling.get(l) || 0) + 1));
+      });
+      const eigenNamen = new Set([...telling].filter(([, n]) => n >= Math.max(3, metTekst.length * 0.3)).map(([l]) => l));
+      if (eigenNamen.size) {
+        metTekst.forEach((r) => {
+          if (r.boeking.soort === 'kost' && eigenNamen.has(r.boeking.omschrijving.toLowerCase())) {
+            r.boeking.omschrijving = window.BonLezer.lees(r.tekst, r.naam, { eigenNamen }).omschrijving;
+          }
+        });
+      }
+    }
+    resultaten.forEach((r) => {
+      const hint = window.BonLezer.hintUitPad(r.pad);
+      if (!r.boeking || !r.boeking.datum || !hint || !hint.kwartaal) return;
+      const k = window.BTW.kwartaalVan(r.boeking.datum);
+      if (k.jaar !== hint.jaar || k.kwartaal !== hint.kwartaal) {
+        r.boeking.zeker = false;
+        r.boeking.notities.unshift(`Datum valt buiten Q${hint.kwartaal} ${hint.jaar} (de map): controleer de datum. Klopt hij, dan telt de boeking mee in Q${k.kwartaal} ${k.jaar}.`);
+      }
+    });
+  }
+
   // Met Scanner.stop() breek je het inlezen af; de resultaten van een afgebroken run zijn dan onvolledig.
   async function lees(bestanden, voortgang) {
     stop(); // er kan maar één run tegelijk lopen
@@ -332,16 +396,24 @@
           continue;
         }
         const r = item.soort === 'pdf' ? await leesPdf(run, item, blob, melding) : await leesAfbeelding(run, blob, melding);
+        // Losse betaling uit de bankapp (één transactie per PDF of schermafbeelding)
+        const bewijs = window.BankLezer.leesTransactieBewijs(r.tekst);
+        if (bewijs) {
+          const [res] = bankResultaten(item, [bewijs], hint);
+          res.voorbeeld = r.voorbeeld;
+          resultaten.push(res);
+          continue;
+        }
         if (hint.bank || window.BankLezer.isAfschrift(r.tekst, item.pad)) {
           const transacties = r.rijen ? window.BankLezer.leesRijen(r.rijen, r.tekst) : window.BankLezer.leesTekst(r.tekst);
           if (transacties.length) {
-            resultaten.push(...bankResultaten(item, transacties));
+            resultaten.push(...bankResultaten(item, transacties, hint));
             continue;
           }
         }
         const vandaag = new Date().toISOString().slice(0, 10);
         const boeking = window.BonLezer.lees(r.tekst, item.naam, { vandaag, hint });
-        resultaten.push({ naam: item.naam, pad: item.pad, voorbeeld: r.voorbeeld, tekst: r.tekst, boeking, meenemen: !!boeking.bedrag });
+        resultaten.push({ naam: item.naam, pad: item.pad, voorbeeld: r.voorbeeld, tekst: r.tekst, boeking, meenemen: !!boeking.bedrag && !boeking.prive });
       } catch (e) {
         if (run.gestopt) break;
         resultaten.push({ naam: item.naam, pad: item.pad, fout: e.message || 'Kon dit bestand niet lezen.' });
@@ -351,6 +423,7 @@
     }
     await stopWorker(run);
     if (huidigeRun === run) huidigeRun = null;
+    naverwerk(resultaten);
     voortgang('Klaar', items.length, items.length);
     return resultaten;
   }

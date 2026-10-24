@@ -32,7 +32,7 @@ BTW   OVER    EUR
   assert.strictEqual(r.bedrag, 1548);
   assert.strictEqual(r.datum, '2026-02-13');
   assert.strictEqual(r.btwBedrag, 187);
-  assert.strictEqual(r.omschrijving, 'ALBERT HEIJN');
+  assert.strictEqual(r.omschrijving, 'Albert Heijn');
   assert.strictEqual(r.btwAftrekbaar, true);
 });
 
@@ -124,4 +124,42 @@ test('aanslag: dagtekening, niet het tijdvak', () => {
   const r = lees('Belastingdienst\nAanslag motorrijtuigenbelasting\nTijdvak: 01-10-2026 t/m 31-12-2026\nDagtekening: 2 oktober 2026\nTe betalen 312,00', 'mrb.pdf');
   assert.strictEqual(r.datum, '2026-10-02');
   assert.strictEqual(require('../bonlezer.js').categoriseer('Voetbalvereniging sponsorpakket').categorie, 'sponsoring');
+});
+
+test('telefoonfactuur: totaal incl. btw, niet het toestelkrediet', () => {
+  const r = lees(`Factuur KPN Mobiel
+Klantnummer 12345678901  Factuurdatum 22 september 2026
+Totaal (incl. btw)  € 79,06
+Totaal excl. btw  72,45
+Btw nvt over 41,00  0,00
+Btw 21% over 31,45  6,61
+Toestel per maand 1  41,00
+Resterend bedrag : 476,97 €
+Totaal  79,06`, 'kpn.pdf');
+  assert.deepStrictEqual([r.bedrag, r.btwBedrag, r.categorie, r.datum], [7906, 661, 'telefoon', '2026-09-22']);
+});
+
+test('self-billing remittance als inkomsten', () => {
+  const r = lees(`DIENSTEN VERRICHT DOOR:  Voorbeeld Detachering B.V
+Mijn Bedrijf  1234 AB UTRECHT
+Factuur nummer:  12345678.1
+Factuurdatum:  14/07/2026
+FACTUUR UITGEREIKT DOOR AFNEMER
+Totaal exclusief BTW (€)  7.260,00
+BTW 21,00% over € 7.260,00:  1.524,60
+Totaal inclusief BTW (€)  8.784,60`, 'remittance.pdf', { hint: { soort: 'inkomst' } });
+  assert.deepStrictEqual([r.soort, r.bedrag, r.btwBedrag, r.datum], ['inkomst', 878460, 152460, '2026-07-14']);
+  assert.strictEqual(r.omschrijving, 'Factuur 12345678.1 – Voorbeeld Detachering B.V');
+});
+
+test('map auto zonder brandstof: geen tankbon-melding', () => {
+  const r = lees('AliExpress\nBestelling\nTotaal € 112,21\n24-09-2026', 'a.png', { hint: { soort: 'kost', categorie: 'auto' } });
+  assert.strictEqual(r.categorie, 'auto');
+  assert.ok(!r.notities.some((n) => /Brandstof|Tankbon/.test(n)));
+});
+
+test('kwartaal uit de mapnaam', () => {
+  const { hintUitPad } = require('../bonlezer.js');
+  assert.deepStrictEqual(hintUitPad('Facturen Q3 2026 /Inkomsten /a.pdf'), { soort: 'inkomst', kwartaal: 3, jaar: 2026 });
+  assert.deepStrictEqual(hintUitPad('Facturen Q3 2026 /Bedrijfskosten verzekeringen:wegenbelasting/b.pdf'), { soort: 'kost', kwartaal: 3, jaar: 2026 });
 });

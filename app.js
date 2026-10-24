@@ -67,8 +67,11 @@
   function bewaar() {
     try {
       localStorage.setItem(OPSLAG_SLEUTEL, JSON.stringify(state));
+      return true;
     } catch (e) {
-      toast('Opslaan mislukt. Maak een back-up via Meer.');
+      logFout('Opslaan mislukt: ' + e.message);
+      alert('Opslaan is mislukt: de opslag van je telefoon voor deze app is vol of geblokkeerd. Maak een back-up via Meer en probeer het opnieuw.');
+      return false;
     }
   }
   // Vraag iOS om de gegevens niet automatisch op te ruimen
@@ -745,9 +748,17 @@
     const zelfde = (a, b) => a.soort === b.soort && a.datum && b.datum && dagen(a.datum, b.datum) <= 7 &&
       BTW.splits(a).incl === BTW.splits(b).incl;
     const bonnen = items.filter((i) => !i.fout && !i.bank);
-    items.forEach((item) => {
+    items.forEach((item, index) => {
       if (item.fout || !item.boeking.bedrag) return;
       const b = item.boeking;
+      // Hetzelfde bestand twee keer in de ZIP (zelfde bedrag, datum en soort)
+      const eerder = items.slice(0, index).find((x) => !x.fout && x.boeking.bedrag && x.boeking.datum === b.datum &&
+        x.boeking.soort === b.soort && BTW.splits(x.boeking).incl === BTW.splits(b).incl && !!x.bank === !!item.bank);
+      if (eerder) {
+        item.meenemen = false;
+        b.notities.unshift(`Lijkt een dubbel bestand: zelfde bedrag en datum als "${eerder.naam}".`);
+        return;
+      }
       const bestaand = state.boekingen.find((x) => zelfde(x, b));
       const alsBon = item.bank && bonnen.find((x) => x.boeking.bedrag && zelfde(x.boeking, b));
       if (bestaand) {
@@ -856,13 +867,17 @@
   }
 
   $('scanToevoegen').addEventListener('click', () => {
-    const mee = scanItems.filter((i) => i.meenemen && !i.fout);
-    const zonderBedrag = mee.filter((i) => !i.boeking.bedrag);
-    if (zonderBedrag.length) {
-      toast('Vul eerst het bedrag in bij: ' + zonderBedrag.map((i) => i.boeking.omschrijving || i.naam).join(', '));
+    // Alles met een bedrag wordt toegevoegd; aangevinkte bonnen zonder bedrag blijven staan om aan te vullen.
+    // Eén onvolledige bon mag nooit de rest tegenhouden.
+    const aangevinkt = scanItems.filter((i) => i.meenemen && !i.fout);
+    const mee = aangevinkt.filter((i) => i.boeking.bedrag > 0);
+    const zonderBedrag = aangevinkt.filter((i) => !(i.boeking.bedrag > 0));
+    if (!mee.length) {
+      toast('Tik bij deze bonnen op "Controleer / wijzig" en vul het bedrag in.');
       return;
     }
     let laatste = null;
+    const aantalVoor = state.boekingen.length;
     const importId = Date.now();
     mee.forEach((i) => {
       const b = i.boeking;
@@ -876,7 +891,21 @@
       state.boekingen.push(boeking);
       laatste = boeking;
     });
-    bewaar();
+    if (!bewaar()) {
+      state.boekingen.length = aantalVoor; // niets half toevoegen
+      return;
+    }
+    const tekst = mee.length === 1 ? '1 boeking toegevoegd' : `${mee.length} boekingen toegevoegd`;
+    if (zonderBedrag.length) {
+      // Alleen de bonnen zonder bedrag blijven in beeld
+      scanItems = zonderBedrag;
+      renderScan();
+      $('scanSamenvatting').textContent = `${tekst}. ${zonderBedrag.length === 1 ? 'Deze bon heeft' : 'Deze bonnen hebben'} nog een bedrag nodig: tik op "Controleer / wijzig".`;
+      $('scanSamenvatting').focus();
+      toast(tekst);
+      render();
+      return;
+    }
     if (laatste) {
       const k = BTW.kwartaalVan(laatste.datum);
       ui.jaar = k.jaar;
@@ -884,7 +913,7 @@
     }
     scanDialog.close();
     Scanner.stop();
-    toast(mee.length === 1 ? '1 boeking toegevoegd' : `${mee.length} boekingen toegevoegd`);
+    toast(tekst);
     // Laat precies zien wat er is toegevoegd (over alle periodes), zodat je het ook in één keer kunt terugdraaien
     ui.periode = 'alles';
     ui.categorie = '__laatste';

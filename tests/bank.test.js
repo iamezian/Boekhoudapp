@@ -74,3 +74,40 @@ test('gescand afschrift (tekst met Af/Bij)', () => {
   const t = Bank.leesTekst(`Bankafschrift oktober 2026 IBAN NL01\n03-10-2026 Tango Amersfoort 58,47 Af\n04-10-2026 Klant BV 605,00 Bij\nNieuw saldo 1.546,53`);
   assert.deepStrictEqual(t.map((x) => [x.datum, x.bedrag]), [['2026-10-03', -5847], ['2026-10-04', 60500]]);
 });
+
+test('Knab-transactiebewijs: motorrijtuigenbelasting en Allianz Direct', () => {
+  const mrb = Bank.leesTransactieBewijs(`Belastingdienst  -€75,00
+Datum  27 jul 2026
+Type  Periodieke incasso
+Incassant:
+NL00ZZZ000000000000
+Rekeningnummer  NL00RABO0000000000
+Omschrijving  XY-123-Z 06-07-2026 t/m 05-
+08-2026 MEER INFO
+WWW.BELASTINGDIENST.NL,
+Naam  Mijn Bedrijf
+Rekeningnummer  NL00KNAB0000000000
+Rekeningnaam  Knab Zakelijke Betaalrekening`);
+  assert.deepStrictEqual([mrb.datum, mrb.bedrag, mrb.naam], ['2026-07-27', -7500, 'Belastingdienst']);
+  const b = Bank.naarBoeking(mrb);
+  assert.deepStrictEqual([b.boeking.categorie, b.boeking.tarief, b.meenemen, b.boeking.omschrijving],
+    ['belastingen', 0, true, 'Motorrijtuigenbelasting XY-123-Z']);
+
+  const allianz = Bank.leesTransactieBewijs(`Allianz Direct Vers.Allianz Direct Netherlands  -€121,21
+Datum  13 jul 2026
+Type  Periodieke incasso
+Rekeningnummer  DE00000000000000000000
+Omschrijving  DN000000000, ACB00000-E000000
+Naam  Mijn Bedrijf`);
+  assert.strictEqual(allianz.bedrag, -12121);
+  const a = Bank.naarBoeking(allianz);
+  assert.deepStrictEqual([a.boeking.categorie, a.meenemen], ['verzekering', true]);
+
+  // Btw-betaling blijft geen kost
+  const btw = Bank.naarBoeking({ datum: '2026-10-20', bedrag: -115000, naam: 'Belastingdienst', omschrijving: 'omzetbelasting Q3' });
+  assert.strictEqual(btw.meenemen, false);
+  // Zorgverzekering is privé
+  assert.strictEqual(Bank.naarBoeking({ datum: '2026-10-01', bedrag: -14500, naam: 'Zilveren Kruis', omschrijving: 'premie oktober' }).meenemen, false);
+  // Map Sponsoring maakt van een Tikkie sponsoring
+  assert.strictEqual(Bank.naarBoeking({ datum: '2026-09-09', bedrag: -20000, naam: 'J. Jansen via Tikkie', omschrijving: 'camera' }, { categorie: 'sponsoring' }).boeking.categorie, 'sponsoring');
+});
